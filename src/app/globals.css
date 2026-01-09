@@ -1,0 +1,46 @@
+/* PASSO 1: Importar a fonte (DEVE ser a primeira linha) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+/* PASSO 2: Diretivas do Tailwind (ÚNICAS E ESSENCIAIS) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* PASSO 3: Estilo base para todo o site */
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f8fafc; /* Cinza Gelo */
+    color: #0f172a; /* Azul Escuro */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* PASSO 4: Estilos customizados para o Calendário "Padrão Google" */
+
+.rbc-calendar { border: none !important; font-family: inherit !important; }
+.rbc-toolbar { margin-bottom: 2rem !important; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+.rbc-toolbar .rbc-toolbar-label { font-size: 1.75rem !important; font-weight: 800 !important; color: #1e293b; }
+.rbc-btn-group button { background: white !important; border: 1px solid #cbd5e1 !important; color: #334155 !important; font-weight: 600 !important; padding: 0.6rem 1.2rem !important; transition: all 0.2s ease; }
+.rbc-btn-group button:first-child { border-radius: 0.75rem 0 0 0.75rem; }
+.rbc-btn-group button:last-child { border-radius: 0 0.75rem 0.75rem 0; }
+.rbc-btn-group button:hover { background-color: #f1f5f9 !important; }
+.rbc-btn-group button.rbc-active { background-color: #0ea5e9 !important; color: white !important; border-color: #0ea5e9 !important; box-shadow: 0 4px 14px -4px rgb(14 165 233 / 50%); }
+
+.rbc-header { padding: 1rem 0 !important; font-weight: 600 !important; font-size: 0.8rem !important; text-transform: uppercase !important; letter-spacing: 0.05em !important; color: #64748b !important; border: none !important; text-align: center; }
+.rbc-month-view { border: 1px solid #e2e8f0 !important; border-radius: 1.5rem !important; background: white !important; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.05); overflow: hidden; }
+.rbc-day-bg { border-left: 1px solid #f1f5f9 !important; }
+.rbc-off-range-bg { background-color: #f8fafc !important; }
+.rbc-today { background-color: #f0f9ff !important; }
+
+.rbc-date-cell { padding: 0.75rem !important; font-size: 0.9rem !important; font-weight: 600 !important; color: #1e293b !important; transition: background-color 0.2s; text-align: center; }
+.rbc-date-cell:hover { background-color: #f1f5f9; }
+.rbc-event { background-color: transparent !important; padding: 1px 0 !important; border: none !important; }
+.custom-event { padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s ease; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px; }
+.custom-event:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+
+.rbc-agenda-view { border: 1px solid #e2e8f0 !important; border-radius: 1.5rem !important; background: white !important; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.05); }
+.rbc-agenda-table { border: none !important; }
+.rbc-agenda-content { padding: 1rem; }

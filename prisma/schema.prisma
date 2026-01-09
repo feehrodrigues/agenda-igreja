@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // MUDOU DE sqlite PARA postgresql
+  url      = env("DATABASE_URL")
+}
+
+model Room {
+  id         String     @id @default(cuid())
+  slug       String     @unique
+  name       String
+  type       String
+  color      String     @default("#3b82f6")
+  inviteCode String     @unique @default(cuid())
+  parentId   String?
+  parent     Room?      @relation("Hierarchy", fields: [parentId], references: [id])
+  children   Room[]     @relation("Hierarchy")
+  members    Member[]
+  followers  Follower[]
+  events     Event[]
+  categories Category[]
+}
+
+model Member {
+  id     String @id @default(cuid())
+  userId String
+  roomId String
+  role   String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@unique([userId, roomId])
+}
+
+model Follower {
+  id        String @id @default(cuid())
+  userId    String
+  roomId    String
+  icalToken String @unique @default(cuid())
+  room      Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  @@unique([userId, roomId])
+}
+
+model Event {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  start       DateTime
+  end         DateTime
+  isRecurring Boolean   @default(false)
+  rrule       String?
+  cascade     Boolean   @default(false)
+  roomId      String
+  room        Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // AQUI ESTAVA FALTANDO A RELAÇÃO
+  exceptions EventException[]
+}
+
+model Category {
+  id     String  @id @default(cuid())
+  name   String
+  color  String
+  roomId String
+  room   Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  events Event[]
+  @@unique([name, roomId])
+}
+
+// A TABELA DE EXCEÇÕES QUE NÃO ESTAVA LIGADA AO EVENTO
+model EventException {
+  id              String   @id @default(cuid())
+  originalEventId String
+  exceptionDate   DateTime
+  
+  originalEvent   Event    @relation(fields: [originalEventId], references: [id], onDelete: Cascade)
+
+  @@unique([originalEventId, exceptionDate])
+}

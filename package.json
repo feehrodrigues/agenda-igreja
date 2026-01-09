@@ -1,0 +1,34 @@
+{
+  "name": "agenda-igreja",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^6.36.7",
+    "@prisma/client": "^5.22.0",
+    "date-fns": "^4.1.0",
+    "html2canvas": "^1.4.1",
+    "ical-generator": "^10.0.0",
+    "jspdf": "^4.0.0",
+    "lucide-react": "^0.562.0",
+    "next": "16.1.1",
+    "prisma": "^5.22.0",
+    "react": "19.2.3",
+    "react-big-calendar": "^1.19.4",
+    "react-dom": "19.2.3",
+    "rrule": "^2.8.1",
+    "tailwindcss-animate": "^1.0.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4"
+  }
+}
