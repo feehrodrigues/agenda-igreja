@@ -18,7 +18,7 @@ export default async function Home() {
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white text-2xl shadow-lg shadow-blue-600/30">📅</div>
-            <span className="text-xl font-black text-slate-800 tracking-tight">Agenda<span className="text-blue-600">Eclesiástica</span></span>
+            <span className="text-xl font-black text-slate-800 tracking-tight">Agenda<span className="text-blue-600">Igreja</span></span>
           </div>
           <div className="flex gap-4">
             <Link href="/sign-in" className="hidden md:flex items-center text-slate-600 font-bold hover:text-blue-600 transition">
@@ -137,7 +137,7 @@ export default async function Home() {
       {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200 py-12 text-center text-slate-500 text-sm">
         <div className="flex items-center justify-center gap-2 mb-4 text-slate-900 font-bold text-lg">
-            <span>📅</span> Agenda Eclesiástica
+            <span>📅</span> Agenda Igreja
         </div>
         <p className="mb-6">Desenvolvido voluntariamente para auxiliar a obra de Deus.</p>
         <div className="flex justify-center gap-6 font-medium">

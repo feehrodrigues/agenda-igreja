@@ -2,12 +2,15 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { Inter } from 'next/font/google' // Importa a fonte do Google
 import './globals.css'
 
-// Configura a fonte para ser usada em todo o site
-const inter = Inter({ subsets: ['latin'] })
+<meta name="google-site-verification" content="OEuc9eBot0a7AMQ8ZNUiDWrylytBHU4_ey3tUV4Qr2s" />
+
 
 export const metadata = {
-  title: 'Agenda Ministerial Pro',
-  description: 'A plataforma definitiva para organização de igrejas e ministérios.',
+  title: 'Agenda Igreja',
+  description: 'A plataforma gratuita para organização de igrejas e ministérios.',
+  // ADICIONE ESTE BLOCO AQUI 👇
+  verification: {
+    google: "OEuc9eBot0a7AMQ8ZNUiDWrylytBHU4_ey3tUV4Qr2s",}
 }
 
 export default function RootLayout({ children }) {
