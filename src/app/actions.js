@@ -206,7 +206,10 @@ export async function updateEvent(formData) {
         const title = formData.get("title");
         const description = formData.get("description");
         const cascade = formData.get("cascade") === "on";
-        const rruleString = formData.get("rruleString");
+        
+        // A nova regra de repetição, vinda diretamente do formulário.
+        // Se vier vazia, o evento deixará de ser recorrente.
+        const rruleString = formData.get("rruleString") || null;
 
         const commonData = {
             title, description, cascade, 
@@ -216,24 +219,41 @@ export async function updateEvent(formData) {
         if (updateMode === 'all' || !event.isRecurring) {
             await prisma.event.update({
                 where: { id: eventId },
-                data: { ...commonData, start: newStart, end: newEnd, isRecurring: !!rruleString, rrule: rruleString || null }
+                data: { 
+                    ...commonData, 
+                    start: newStart, 
+                    end: newEnd, 
+                    isRecurring: !!rruleString, // A recorrência depende da nova string
+                    rrule: rruleString,          // Salva a nova string ou null
+                    // Limpa exceções antigas se a regra de repetição mudar completamente
+                    exceptions: {
+                        deleteMany: {},
+                    },
+                }
             });
         } 
         else if (updateMode === 'single') {
+            // Cria exceção na data original
             await prisma.eventException.create({ data: { originalEventId: eventId, exceptionDate: originalDate } });
+            // Cria o evento individual solto
             await prisma.event.create({
                 data: { roomId: event.roomId, ...commonData, start: newStart, end: newEnd, isRecurring: false, rrule: null }
             });
         }
         else if (updateMode === 'future') {
+            // Fecha o evento antigo na data anterior
             const newUntilDate = new Date(originalDate);
             newUntilDate.setDate(newUntilDate.getDate() - 1);
             const untilISO = newUntilDate.toISOString().replace(/[-:.]/g, '').split('T')[0] + 'T235959Z';
+            
             const oldRRule = event.rrule ? event.rrule.split(';').filter(p => !p.startsWith('UNTIL') && !p.startsWith('COUNT')).join(';') : '';
             const updatedOldRRule = `${oldRRule};UNTIL=${untilISO}`;
+            
             await prisma.event.update({ where: { id: eventId }, data: { rrule: updatedOldRRule } });
+            
+            // Cria o novo evento daqui pra frente, com a nova regra do formulário
             await prisma.event.create({
-                data: { roomId: event.roomId, ...commonData, start: newStart, end: newEnd, isRecurring: true, rrule: rruleString || event.rrule }
+                data: { roomId: event.roomId, ...commonData, start: newStart, end: newEnd, isRecurring: !!rruleString, rrule: rruleString }
             });
         }
 

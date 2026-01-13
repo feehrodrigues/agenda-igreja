@@ -20,7 +20,7 @@
 
 /* PASSO 4: Estilos customizados para o Calendário "Padrão Google" */
 
-.rbc-calendar { border: none !important; font-family: inherit !important; }
+/* .rbc-calendar { border: none !important; font-family: inherit !important; }
 .rbc-toolbar { margin-bottom: 2rem !important; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
 .rbc-toolbar .rbc-toolbar-label { font-size: 1.75rem !important; font-weight: 800 !important; color: #1e293b; }
 .rbc-btn-group button { background: white !important; border: 1px solid #cbd5e1 !important; color: #334155 !important; font-weight: 600 !important; padding: 0.6rem 1.2rem !important; transition: all 0.2s ease; }
@@ -43,4 +43,107 @@
 
 .rbc-agenda-view { border: 1px solid #e2e8f0 !important; border-radius: 1.5rem !important; background: white !important; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.05); }
 .rbc-agenda-table { border: none !important; }
-.rbc-agenda-content { padding: 1rem; }
+.rbc-agenda-content { padding: 1rem; } */
+
+
+
+/* 1. Dias de outros meses com menos opacidade */
+.rbc-off-range-bg {
+  background-color: #f8fafc !important;
+  opacity: 0.4; /* Deixa bem clarinho */
+  pointer-events: none; /* Opcional: impede clicar em dias de outro mês */
+}
+
+/* 2. Célula do dia */
+.rbc-date-cell {
+  padding: 4px 8px !important;
+  font-size: 0.85rem !important;
+  font-weight: 700 !important;
+  text-align: right;
+  margin-bottom: 4px;
+}
+
+/* 3. Eventos Otimizados (para caber 3 ou mais) */
+.rbc-event {
+  background-color: transparent !important;
+  padding: 1px 0 !important;
+  min-height: auto !important; /* Remove altura forçada */
+}
+
+.custom-event {
+  padding: 2px 6px; /* Padding menor */
+  border-radius: 4px;
+  font-size: 0.7rem; /* Fonte menor para caber mais texto */
+  line-height: 1.2;
+  font-weight: 600;
+  color: white;
+  margin-bottom: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Remove a barra de rolagem feia dentro das células se houver muitos eventos */
+.rbc-month-view {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 1rem !important;
+  overflow: hidden;
+}
+
+/* Ajuste da altura das linhas para garantir que caibam os eventos */
+.rbc-month-row {
+  min-height: 120px; /* Garante altura mínima para os dias */
+}
+
+/* BOTÃO "Ver mais" (+2 mais) */
+.rbc-show-more {
+  background-color: transparent !important;
+  color: #64748b !important;
+  font-size: 0.75rem !important;
+  font-weight: bold !important;
+  margin-top: 2px;
+  display: block;
+  text-align: center;
+}
+.rbc-show-more:hover {
+  text-decoration: underline;
+  color: #2563eb !important;
+}
+/* --- ADICIONAR NO FIM DE globals.css --- */
+
+/* 1. Dias de outro mês com menos opacidade */
+.rbc-off-range-bg {
+  background-color: #f8fafc !important;
+  opacity: 0.3 !important; /* Bem clarinho */
+}
+
+/* 2. Ajuste para caber mais eventos */
+.rbc-event {
+  background-color: transparent !important;
+  padding: 1px 0 !important;
+  min-height: auto !important;
+}
+
+.rbc-row-content {
+    z-index: 2; /* Garante que os eventos fiquem sobre o fundo */
+}
+
+.rbc-date-cell {
+    font-size: 0.8rem;
+    font-weight: bold;
+    color: #64748b;
+    padding-right: 8px;
+}
+
+/* Configuração de Impressão (PDF) */
+@media print {
+  @page { size: A4 portrait; margin: 1cm; } /* Retrato para caber a lista embaixo */
+  body { background: white; color: black; }
+  
+  /* Remove scrollbars e alturas fixas na impressão */
+  .rbc-calendar { height: auto !important; min-height: 500px; overflow: visible !important; }
+  .rbc-month-view { border: 1px solid #000 !important; }
+  
+  /* Força cores de fundo na impressão (Chrome/Edge precisa disso) */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}

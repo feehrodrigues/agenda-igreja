@@ -1,22 +1,38 @@
 "use client";
 import { useMemo, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { followRoom } from '@/app/actions';
-import format from 'date-fns/format';
-import parse from 'date-fns/parse';
-import startOfWeek from 'date-fns/startOfWeek';
-import getDay from 'date-fns/getDay';
+import { 
+    format, parse, startOfWeek, getDay, isSameMonth, 
+    isSameYear, startOfMonth, endOfMonth, endOfWeek, 
+    addDays, isSameDay 
+} from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { Search, Download, Calendar as CalIcon, Clock, AlignLeft, X, FileSpreadsheet } from 'lucide-react'; 
-import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
 const locales = { 'pt-BR': ptBR };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
 
-// Função de Contraste
+// Função auxiliar para converter HEX para RGB
+const hexToRgb = (hex) => {
+    let r = 0, g = 0, b = 0;
+    if (hex.length === 4) {
+        r = parseInt("0x" + hex[1] + hex[1]);
+        g = parseInt("0x" + hex[2] + hex[2]);
+        b = parseInt("0x" + hex[3] + hex[3]);
+    } else if (hex.length === 7) {
+        r = parseInt("0x" + hex[1] + hex[2]);
+        g = parseInt("0x" + hex[3] + hex[4]);
+        b = parseInt("0x" + hex[5] + hex[6]);
+    }
+    return [r, g, b];
+};
+
 function getContrastColor(hexcolor) {
     if(!hexcolor) return 'black';
     hexcolor = hexcolor.replace("#", "");
@@ -27,26 +43,46 @@ function getContrastColor(hexcolor) {
     return (yiq >= 128) ? 'black' : 'white';
 }
 
-const CustomEvent = ({ event }) => {
-  const textColor = getContrastColor(event.resource.color);
-  return (
-    <div className="flex flex-col h-full w-full px-1 text-xs overflow-hidden leading-tight" style={{ backgroundColor: event.resource.color, color: textColor, borderRadius: '4px' }}>
-      <span className="font-bold">{event.title}</span>
-      {event.resource.roomName && <span className="text-[10px] opacity-80">{event.resource.roomName}</span>}
-    </div>
-  );
+const ScreenEvent = ({ event }) => {
+    const textColor = getContrastColor(event.resource.color);
+    return (
+        <div style={{ 
+            backgroundColor: event.resource.color, 
+            color: textColor, 
+            borderRadius: '3px',
+            height: '100%',
+            padding: '2px 4px',
+            overflow: 'hidden',
+            fontSize: '11px',
+            lineHeight: '1.2',
+            borderLeft: '3px solid rgba(0,0,0,0.2)'
+        }}>
+            <span style={{ fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {event.title}
+            </span>
+            {event.resource.roomName && (
+                <span style={{ fontSize: '9px', opacity: 0.9, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {event.resource.roomName}
+                </span>
+            )}
+        </div>
+    );
 };
 
 export default function PublicCalendar({ room, events: serializableEvents, isFollowingInitially, isLoggedIn }) {
+  const router = useRouter();
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [isFollowing, setIsFollowing] = useState(isFollowingInitially);
-  const [showResultsList, setShowResultsList] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  
-  // ESTADO DA DATA ATUAL (Para navegação e nome do arquivo)
   const [currentDate, setCurrentDate] = useState(new Date());
-  
   const [googleUrl, setGoogleUrl] = useState("#");
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => { router.refresh(); }, 30000); 
+    return () => clearInterval(interval);
+  }, [router]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -67,17 +103,11 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
     );
   }, [allEvents, searchTerm]);
 
-  const globalSearchResults = useMemo(() => {
-     if (!searchTerm) return [];
-     return filteredEvents.sort((a,b) => a.start - b.start);
-  }, [filteredEvents, searchTerm]);
-
-  const handleSearchSubmit = (e) => {
-      e.preventDefault();
-      if(searchTerm.trim()) {
-          setShowResultsList(true);
-      }
-  };
+  const currentMonthEvents = useMemo(() => {
+      return filteredEvents
+        .filter(ev => isSameMonth(ev.start, currentDate) && isSameYear(ev.start, currentDate))
+        .sort((a,b) => a.start - b.start);
+  }, [filteredEvents, currentDate]);
 
   const handleFollow = async () => {
     const result = await followRoom(room.id);
@@ -85,56 +115,188 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
     else alert(result.error);
   };
 
-  // EXPORTAR PDF (Com Mês/Ano no nome)
-  const exportPDF = async () => {
-    const calendarElement = document.querySelector('.rbc-calendar'); 
-    if(!calendarElement) return;
-    
-    // Formata o nome do arquivo: Ex: Agenda_slug_janeiro_2026.pdf
-    const dateString = format(currentDate, 'MMMM_yyyy', { locale: ptBR });
-    const fileName = `Agenda_${room.slug}_${dateString}.pdf`;
+  // ==========================================================
+  // GERAÇÃO VETORIAL (CORRIGIDA E ALINHADA)
+  // ==========================================================
+  const generateVectorPDF = () => {
+      setIsGeneratingPdf(true);
+      try {
+          const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+          const width = doc.internal.pageSize.getWidth();
+          const height = doc.internal.pageSize.getHeight();
+          const margin = 10;
+          
+          // --- PÁGINA 1: CALENDÁRIO VISUAL ---
+          
+          // Cabeçalho
+          doc.setFontSize(26);
+          doc.setFont("helvetica", "bold");
+          doc.text(room.name, margin, 15);
+          
+          doc.setFontSize(14);
+          doc.setFont("helvetica", "normal");
+          doc.text("AGENDA OFICIAL", margin, 22);
 
-    try {
-        const canvas = await html2canvas(calendarElement, { scale: 1.5 });
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('l', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        
-        // Título no PDF
-        const titleDate = format(currentDate, 'MMMM yyyy', { locale: ptBR }).toUpperCase();
-        pdf.setFontSize(14);
-        pdf.text(`Agenda: ${room.name} - ${titleDate}`, 10, 10);
-        
-        pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, pdfHeight);
-        pdf.save(fileName);
-    } catch (err) { console.error(err); alert("Erro ao gerar PDF."); }
+          doc.setFontSize(16);
+          doc.setFont("helvetica", "bold");
+          doc.text(format(currentDate, 'MMMM yyyy', {locale: ptBR}).toUpperCase(), width - margin, 15, { align: 'right' });
+
+          // Configuração da Grade
+          const startMonth = startOfMonth(currentDate);
+          const endMonth = endOfMonth(currentDate);
+          const startDate = startOfWeek(startMonth);
+          const endDate = endOfWeek(endMonth);
+
+          const daysHeader = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
+          const colWidth = (width - (margin * 2)) / 7;
+          const headerHeight = 10;
+          const rowHeight = 30; 
+          const headerY = 30;
+
+          // 1. Desenha cabeçalho dos dias da semana (CORRIGIDO)
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(0, 0, 0); // Texto preto
+          doc.setLineWidth(0.1); // Linha fina
+
+          daysHeader.forEach((day, i) => {
+              const x = margin + (i * colWidth);
+              
+              // Fundo Cinza + Borda
+              doc.setFillColor(240, 240, 240); 
+              doc.setDrawColor(0, 0, 0); // Borda preta
+              doc.rect(x, headerY, colWidth, headerHeight, 'FD'); // F = Fill, D = Draw Stroke
+              
+              // Texto Centralizado
+              doc.text(day, x + (colWidth/2), headerY + 6.5, { align: 'center' });
+          });
+
+          // 2. Desenha os dias
+          let day = startDate;
+          let currentRow = 0;
+          const gridStartY = headerY + headerHeight; // Começa exatamente onde o cabeçalho termina
+          
+          doc.setFontSize(10);
+          
+          while (day <= endDate) {
+              for (let i = 0; i < 7; i++) {
+                  const x = margin + (i * colWidth);
+                  const y = gridStartY + (currentRow * rowHeight);
+                  const isCurrent = isSameMonth(day, currentDate);
+                  
+                  // Borda do Dia
+                  doc.setDrawColor(150, 150, 150); // Borda cinza suave para os dias
+                  doc.rect(x, y, colWidth, rowHeight);
+                  
+                  // Número do dia
+                  doc.setFont("helvetica", isCurrent ? "bold" : "normal");
+                  doc.setTextColor(isCurrent ? 0 : 150);
+                  doc.text(format(day, 'd'), x + colWidth - 2, y + 5, { align: 'right' });
+
+                  // Bolinhas dos eventos
+                  const dayEvents = filteredEvents.filter(e => isSameDay(e.start, day));
+                  const maxEventsToShow = 4;
+                  
+                  dayEvents.slice(0, maxEventsToShow).forEach((ev, idx) => {
+                      const eventY = y + 10 + (idx * 4.5);
+                      const [r, g, b] = hexToRgb(ev.resource.color);
+                      
+                      // Bolinha
+                      doc.setFillColor(r, g, b);
+                      doc.circle(x + 3, eventY - 1, 1.5, 'F');
+                      
+                      // Texto
+                      doc.setTextColor(0); // Texto preto
+                      doc.setFontSize(7);
+                      doc.setFont("helvetica", "normal");
+                      
+                      let title = ev.title;
+                      if (title.length > 25) title = title.substring(0, 23) + '..';
+                      doc.text(title, x + 6, eventY);
+                  });
+                  
+                  if (dayEvents.length > maxEventsToShow) {
+                      doc.setFontSize(6);
+                      doc.setTextColor(100);
+                      doc.text(`+ ${dayEvents.length - maxEventsToShow} mais`, x + 3, y + rowHeight - 2);
+                  }
+
+                  day = addDays(day, 1);
+              }
+              currentRow++;
+              if(currentRow > 5) break; 
+          }
+
+          // --- PÁGINA 2: LISTA DETALHADA ---
+          doc.addPage('a4', 'portrait');
+          
+          doc.setFontSize(18);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(0);
+          doc.text("Detalhamento dos Eventos", 14, 20);
+          
+          doc.setFontSize(12);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(100);
+          doc.text(`${room.name} - ${format(currentDate, 'MMMM yyyy', {locale: ptBR})}`, 14, 28);
+
+          const tableData = currentMonthEvents.map(ev => [
+              `${format(ev.start, 'dd/MM (EEE)', {locale: ptBR})}\n${format(ev.start, 'HH:mm')} - ${format(ev.end, 'HH:mm')}`,
+              ev.title + (ev.description ? `\n\nObs: ${ev.description}` : ''),
+              ev.resource.roomName || room.name
+          ]);
+
+          autoTable(doc, {
+              startY: 35,
+              head: [['DATA / HORA', 'EVENTO', 'LOCAL']],
+              body: tableData,
+              theme: 'grid',
+              styles: { fontSize: 10, cellPadding: 3, valign: 'middle', lineColor: [200, 200, 200] },
+              headStyles: { fillColor: [20, 20, 20], textColor: 255, fontStyle: 'bold' },
+              columnStyles: {
+                  0: { width: 40, fontStyle: 'bold' }, 
+                  2: { width: 40 }
+              },
+          });
+          
+          const pageCount = doc.internal.getNumberOfPages();
+          for(let i = 1; i <= pageCount; i++) {
+              doc.setPage(i);
+              doc.setFontSize(8);
+              doc.setTextColor(150);
+              doc.text(`Gerado por Agenda Igreja - Página ${i} de ${pageCount}`, doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
+          }
+
+          doc.save(`Relatorio_${room.slug}_${format(currentDate, 'MM_yyyy')}.pdf`);
+
+      } catch (error) {
+          console.error("Erro PDF:", error);
+          alert("Erro ao gerar PDF.");
+      } finally {
+          setIsGeneratingPdf(false);
+      }
   };
 
-  // EXPORTAR EXCEL (Com Mês/Ano no nome)
+
   const exportExcel = () => {
       const dataToExport = filteredEvents.map(ev => ({
           'Evento': ev.title,
           'Início': format(ev.start, 'dd/MM/yyyy HH:mm'),
           'Fim': format(ev.end, 'dd/MM/yyyy HH:mm'),
-          'Origem': ev.resource.roomName || room.name,
+          'Local': ev.resource.roomName || room.name,
           'Descrição': ev.description || '',
       }));
-
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Agenda");
-      
-      const wscols = [{wch: 30}, {wch: 20}, {wch: 20}, {wch: 20}, {wch: 40}];
-      ws['!cols'] = wscols;
-
-      // Nome do arquivo com Mês e Ano
       const dateString = format(currentDate, 'MMMM_yyyy', { locale: ptBR });
       XLSX.writeFile(wb, `Agenda_${room.slug}_${dateString}.xlsx`);
   };
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
+      
+      {/* HEADER TELA */}
       <header className="max-w-7xl mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-6">
         <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-lg" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div>
@@ -153,89 +315,50 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
             <a href={googleUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all text-sm">
                 <CalIcon size={16} /> Add Google
             </a>
-            
-            <button onClick={exportExcel} className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-green-600 text-white font-bold hover:bg-green-700 transition-all text-sm shadow-md hover:shadow-lg">
+            <button onClick={exportExcel} className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-green-600 text-white font-bold hover:bg-green-700 transition-all text-sm shadow-md">
                 <FileSpreadsheet size={16} /> Excel
             </button>
-            
-            <button onClick={exportPDF} className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all text-sm shadow-md hover:shadow-lg">
-                <Download size={16} /> PDF
+            <button onClick={generateVectorPDF} disabled={isGeneratingPdf} className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all text-sm shadow-md">
+                <Download size={16} /> {isGeneratingPdf ? 'Gerando...' : 'Baixar PDF'}
             </button>
         </div>
       </header>
 
       {/* BARRA DE PESQUISA */}
       <div className="max-w-7xl mx-auto mb-6">
-        <form onSubmit={handleSearchSubmit} className="relative w-full md:w-1/2 lg:w-1/3 flex gap-2">
-            <div className="relative flex-1">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Search className="h-5 w-5 text-slate-400" />
-                </div>
-                <input 
-                    type="text" 
-                    className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl leading-5 bg-white placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm shadow-sm transition-all" 
-                    placeholder="Pesquisar (Enter para listar tudo)..." 
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        if(e.target.value === "") setShowResultsList(false);
-                    }}
-                />
+        <div className="relative w-full md:w-1/3">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-slate-400" />
             </div>
-            {showResultsList && (
-                <button type="button" onClick={() => { setShowResultsList(false); setSearchTerm(""); }} className="bg-slate-200 text-slate-600 px-4 rounded-xl hover:bg-slate-300 transition">
-                    <X size={20}/>
-                </button>
-            )}
-        </form>
+            <input 
+                type="text" 
+                className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                placeholder="Filtrar eventos..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
       </div>
 
-      <main className="max-w-7xl mx-auto bg-white p-2 rounded-2xl shadow-xl border border-slate-200 overflow-hidden min-h-[75vh]">
-        {!showResultsList ? (
+      {/* CALENDÁRIO VISUAL (TELA) */}
+      <main className="max-w-7xl mx-auto bg-white p-4 rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
             <Calendar
                 localizer={localizer}
                 events={filteredEvents}
                 defaultView="month"
                 views={['month', 'week', 'day', 'agenda']}
                 culture="pt-BR"
-                style={{ height: '75vh' }}
-                // CONTROLE DE NAVEGAÇÃO
+                style={{ height: 700 }}
                 date={currentDate}
                 onNavigate={(date) => setCurrentDate(date)}
-                // 
-                components={{ event: CustomEvent }}
+                components={{ event: ScreenEvent }}
                 onSelectEvent={(event) => setSelectedEvent(event)}
-                messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Sem eventos." }}
-                popup
+                messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Sem eventos.", showMore: total => `+${total} ver mais` }}
+                popup={true}
             />
-        ) : (
-            <div className="p-4 h-[75vh] overflow-y-auto custom-scrollbar bg-slate-900 rounded-xl">
-                <h3 className="text-white font-bold mb-4 text-lg border-b border-slate-700 pb-2">Resultados da pesquisa: "{searchTerm}"</h3>
-                {globalSearchResults.length === 0 ? (
-                    <p className="text-slate-400 text-center mt-10">Nenhum evento encontrado.</p>
-                ) : (
-                    <div className="space-y-1">
-                        {globalSearchResults.map((ev, idx) => (
-                            <div key={idx} onClick={() => setSelectedEvent(ev)} className="flex items-center gap-4 p-4 hover:bg-slate-800 rounded-lg cursor-pointer transition-colors border-b border-slate-800 group">
-                                <div className="text-center w-16 shrink-0">
-                                    <span className="block text-xs font-bold text-slate-500 uppercase">{format(ev.start, 'MMM', {locale: ptBR})}</span>
-                                    <span className="block text-xl font-black text-white">{format(ev.start, 'dd')}</span>
-                                    <span className="block text-xs font-bold text-slate-500 uppercase">{format(ev.start, 'EEE', {locale: ptBR})}</span>
-                                </div>
-                                <div className="w-1 h-10 rounded-full" style={{backgroundColor: ev.resource.color}}></div>
-                                <div>
-                                    <h4 className="text-white font-bold group-hover:text-blue-400 transition-colors">{ev.title}</h4>
-                                    <p className="text-slate-400 text-sm">{format(ev.start, 'HH:mm')} - {format(ev.end, 'HH:mm')}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        )}
       </main>
 
-      {/* MODAL DETALHES */}
+      {/* MODAL DETALHES (TELA) */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in border-t-8" style={{borderColor: selectedEvent.resource.color}}>
@@ -270,7 +393,6 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
             </div>
         </div>
       )}
-      <div className="text-center mt-8 text-slate-400 text-sm">Atualizado em tempo real</div>
     </div>
   );
 }

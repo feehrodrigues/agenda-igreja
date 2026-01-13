@@ -4,18 +4,15 @@ import './globals.css'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
-// Adicione a meta tag de verificação do Google aqui
-<meta name="google-site-verification" content="OEuc9eBot0a7AMQ8ZNUiDWrylytBHU4_ey3tUV4Qr2s" />
-
-
-
+// A tag <meta> solta que estava aqui foi removida.
 
 export const metadata = {
   title: 'Agenda Igreja',
   description: 'A plataforma gratuita para organização de igrejas e ministérios.',
-  // ADICIONE ESTE BLOCO AQUI 👇
+  // A verificação do Google fica aqui, que é o lugar correto:
   verification: {
-    google: "OEuc9eBot0a7AMQ8ZNUiDWrylytBHU4_ey3tUV4Qr2s",}
+    google: "OEuc9eBot0a7AMQ8ZNUiDWrylytBHU4_ey3tUV4Qr2s",
+  }
 }
 
 export default function RootLayout({ children }) {
