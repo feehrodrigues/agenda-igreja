@@ -15,9 +15,11 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
+// Configuração de localidade (Data)
 const locales = { 'pt-BR': ptBR };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
 
+// Funções Auxiliares de Cor e Texto
 function getContrastColor(hexcolor) {
     if(!hexcolor) return 'black';
     hexcolor = hexcolor.replace("#", "");
@@ -48,6 +50,7 @@ function formatTimeRange(start, end, isAllDay) {
     return `${startTime}-${endTime}`;
 }
 
+// Componente visual do Evento no Calendário
 const CustomEvent = ({ event }) => {
     const textColor = getContrastColor(event.resource.color);
     const timeLabel = formatTimeRange(event.start, event.end, event.allDay);
@@ -67,6 +70,7 @@ const CustomEvent = ({ event }) => {
 export default function PublicCalendar({ room, events: serializableEvents, isFollowingInitially, isLoggedIn }) {
   const router = useRouter();
   
+  // Estados
   const [searchTerm, setSearchTerm] = useState("");
   const [isFollowing, setIsFollowing] = useState(isFollowingInitially);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -81,6 +85,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   const [copySuccess, setCopySuccess] = useState('');
   const [includeVisualCalendars, setIncludeVisualCalendars] = useState(false);
 
+  // Efeitos e Handlers
   const handleShare = () => {
     const url = window.location.href;
     navigator.clipboard.writeText(url).then(() => {
@@ -126,7 +131,21 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       endDate.setUTCHours(23, 59, 59, 999); 
       return filteredEvents.filter(ev => ev.start >= startDate && ev.start <= endDate).sort((a, b) => a.start - b.start);
   };
+
+  const fitTextToWidth = (doc, text, maxWidth) => {
+    let textWidth = doc.getTextWidth(text);
+    if (textWidth <= maxWidth) return text;
+
+    // Tenta diminuir o texto até caber
+    let newText = text;
+    while (textWidth > maxWidth && newText.length > 0) {
+        newText = newText.slice(0, -1);
+        textWidth = doc.getTextWidth(newText + "...");
+    }
+    return newText + "...";
+  };
   
+  // Geração de PDF (ATUALIZADA)
   const generatePDF = (isVisual, startDateStr, endDateStr) => {
     setIsGenerating(true);
     try {
@@ -136,49 +155,122 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
         const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
         const drawMonth = (date) => {
-            const width = doc.internal.pageSize.getWidth();
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
             const margin = 10;
-            doc.setFontSize(26); doc.setFont("helvetica", "bold"); doc.setTextColor(0,0,0); doc.text(room.name, margin, 15);
-            doc.setFontSize(16); doc.text(format(date, 'MMMM yyyy', {locale: ptBR}).toUpperCase(), width - margin, 15, { align: 'right' });
+            
+            // Cabeçalho do Mês
+            doc.setFontSize(22); 
+            doc.setFont("helvetica", "bold"); 
+            doc.setTextColor(0,0,0); 
+            doc.text(room.name, margin, 15);
+            
+            doc.setFontSize(14); 
+            doc.text(format(date, 'MMMM yyyy', {locale: ptBR}).toUpperCase(), pageWidth - margin, 15, { align: 'right' });
 
+            // Configuração da Grade
             const startOfMonthCal = startOfMonth(date);
             const startCal = startOfWeek(startOfMonthCal);
             let endCal = endOfWeek(endOfMonth(date));
+            
+            // Garante 6 linhas para manter padrão visual (42 dias)
             const dayDiff = Math.round((endCal - startCal) / (1000 * 60 * 60 * 24));
-            if (dayDiff < 41) { endCal = new Date(startCal.getTime() + 41 * 24 * 60 * 60 * 1000); }
+            if (dayDiff < 41) { 
+                endCal = new Date(startCal.getTime() + 41 * 24 * 60 * 60 * 1000); 
+            }
 
             const daysHeader = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
-            const colWidth = (width - (margin * 2)) / 7; const headerHeight = 8;
-            const rowHeight = (doc.internal.pageSize.getHeight() - 40 - headerHeight) / 6;
-            const headerY = 25;
-            doc.setFontSize(8); doc.setFont("helvetica", "bold");
+            const headerY = 22;
+            const headerHeight = 7;
+            const availableHeight = pageHeight - headerY - headerHeight - margin; // Altura disponível para a grade
+            const rowHeight = availableHeight / 6; // Altura exata de cada linha da grade
+            const colWidth = (pageWidth - (margin * 2)) / 7; 
+
+            // Desenha cabeçalho dias da semana
+            doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(50);
             daysHeader.forEach((day, i) => {
-                doc.setFillColor(240, 240, 240); doc.rect(margin + (i * colWidth), headerY, colWidth, headerHeight, 'F');
-                doc.text(day, margin + (i * colWidth) + (colWidth/2), headerY + 5.5, { align: 'center' });
+                doc.setFillColor(245, 245, 245); 
+                doc.setDrawColor(220);
+                doc.rect(margin + (i * colWidth), headerY, colWidth, headerHeight, 'FD'); // F = Fill, D = Draw Border
+                doc.text(day, margin + (i * colWidth) + (colWidth/2), headerY + 5, { align: 'center' });
             });
 
             let day = new Date(startCal.getTime());
+            
+            // Definições para os eventos
+            const eventLineHeight = 4.5; // Altura de cada linha de evento em mm
+            const dateHeaderSpace = 6; // Espaço reservado para o número do dia no topo da célula
+            const maxEventsPerCell = Math.floor((rowHeight - dateHeaderSpace) / eventLineHeight); 
+
             for (let row = 0; row < 6; row++) {
                 for (let col = 0; col < 7; col++) {
-                    const x = margin + (col * colWidth); const y = headerY + headerHeight + (row * rowHeight);
-                    doc.setDrawColor(200); doc.rect(x, y, colWidth, rowHeight);
-                    doc.setFontSize(10); doc.setFont("helvetica", isSameMonth(day, date) ? "bold" : "normal");
-                    doc.setTextColor(isSameMonth(day, date) ? 0 : 150);
+                    const x = margin + (col * colWidth); 
+                    const y = headerY + headerHeight + (row * rowHeight);
+                    
+                    // Desenha a célula
+                    doc.setDrawColor(200); 
+                    doc.rect(x, y, colWidth, rowHeight);
+
+                    // Número do dia
+                    const isCurrentMonth = isSameMonth(day, date);
+                    doc.setFontSize(10); 
+                    doc.setFont("helvetica", isCurrentMonth ? "bold" : "normal");
+                    doc.setTextColor(isCurrentMonth ? 0 : 180);
                     doc.text(format(day, 'd'), x + colWidth - 2, y + 5, { align: 'right' });
+                    
+                    // Lógica dos Eventos
                     const dayEvents = getEventsInRange(day, day);
-                    dayEvents.slice(0, 5).forEach((ev, idx) => {
-                        const eventY = y + 9 + (idx * 4); if (eventY > y + rowHeight - 3) return;
-                        const [r, g, b] = hexToRgb(ev.resource.color); doc.setFillColor(r, g, b);
-                        doc.circle(x + 2.5, eventY - 1, 1, 'F'); doc.setTextColor(0);
-                        doc.setFontSize(6); doc.setFont("helvetica", "normal");
-                        let title = ev.title.length > 20 ? ev.title.substring(0, 18) + '..' : ev.title;
-                        doc.text(title, x + 4.5, eventY);
-                    });
+                    
+                    // Se tivermos eventos para desenhar
+                    if (dayEvents.length > 0) {
+                        let renderLimit = maxEventsPerCell;
+                        let showMoreLabel = false;
+                        let extraCount = 0;
+
+                        // Se houver mais eventos do que cabe, reservamos 1 linha para o "+ X mais"
+                        if (dayEvents.length > maxEventsPerCell) {
+                            renderLimit = maxEventsPerCell - 1;
+                            showMoreLabel = true;
+                            extraCount = dayEvents.length - renderLimit;
+                        }
+
+                        dayEvents.slice(0, renderLimit).forEach((ev, idx) => {
+                            const eventY = y + 8 + (idx * eventLineHeight); 
+                            
+                            // 1. Bolinha colorida
+                            const [r, g, b] = hexToRgb(ev.resource.color); 
+                            doc.setFillColor(r, g, b);
+                            doc.circle(x + 3, eventY - 1, 1.2, 'F'); 
+                            
+                            // 2. Texto do evento
+                            doc.setTextColor(0);
+                            doc.setFontSize(7); 
+                            doc.setFont("helvetica", "normal");
+                            
+                            // TRUQUE: Calculamos o texto para caber na largura sem quebrar linha
+                            // Subtraímos 6mm (bolinha + margem) da largura total
+                            const maxTextWidth = colWidth - 6; 
+                            const cleanTitle = fitTextToWidth(doc, ev.title, maxTextWidth);
+                            
+                            doc.text(cleanTitle, x + 5, eventY);
+                        });
+
+                        // Label de "+ X mais..."
+                        if (showMoreLabel) {
+                             const moreY = y + 8 + (renderLimit * eventLineHeight);
+                             doc.setFontSize(7); 
+                             doc.setFont("helvetica", "bold"); 
+                             doc.setTextColor(100);
+                             doc.text(`+ ${extraCount} eventos`, x + 5, moreY);
+                        }
+                    }
+
                     day.setDate(day.getDate() + 1);
                 }
             }
         };
         
+        // Loop para gerar páginas visuais se solicitado
         if (isVisual) {
             let currentMonth = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
             let isFirstPage = true;
@@ -190,22 +282,31 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
             }
         }
         
+        // Adiciona página de lista textual ao final
         doc.addPage('a4', 'portrait');
         const title = `Relatório de ${format(startDate, 'dd/MM/yy')} a ${format(endDate, 'dd/MM/yy')}`;
         const eventsToExport = getEventsInRange(startDate, endDate);
+        
         doc.setFontSize(18); doc.setFont("helvetica", "bold"); doc.setTextColor(0,0,0);
-        doc.text(`Relatório de Eventos - ${room.name}`, 14, 20);
-        doc.setFontSize(12); doc.setTextColor(0,0,0);
+        doc.text(`Relatório Detalhado - ${room.name}`, 14, 20);
+        doc.setFontSize(12); doc.setTextColor(80);
         doc.text(title, 14, 28);
+        
         const tableData = eventsToExport.map(ev => [
             `${format(ev.start, 'dd/MM (EEE)', {locale: ptBR})}\n${ev.allDay ? 'Dia todo' : `${format(ev.start, 'HH:mm')} - ${format(ev.end, 'HH:mm')}`}`,
             ev.title + (ev.description ? `\n\nObs: ${ev.description}` : ''),
             ev.resource.roomName || room.name
         ]);
+        
         autoTable(doc, {
-            startY: 35, head: [['DATA / HORA', 'EVENTO', 'LOCAL']], body: tableData, theme: 'grid',
-            styles: { fontSize: 9, cellPadding: 2, valign: 'middle', lineColor: [200, 200, 200], textColor: [0,0,0] },
-            headStyles: { fillColor: [20, 20, 20], textColor: 255, fontStyle: 'bold' },
+            startY: 35, 
+            head: [['DATA / HORA', 'EVENTO', 'LOCAL']], 
+            body: tableData, 
+            theme: 'grid',
+            rowPageBreak: 'avoid',   // <--- ISSO impede que o evento quebre ao meio
+            margin: { bottom: 20 },  // <--- ISSO evita que a tabela cole no fim da folha
+            styles: { fontSize: 9, cellPadding: 3, valign: 'middle', lineColor: [200, 200, 200], textColor: [0,0,0] },
+            headStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },
             columnStyles: { 0: { cellWidth: 35 }, 2: { cellWidth: 35 } },
         });
         
@@ -221,6 +322,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
     }
   };
 
+  // Geração de Excel
   const generateExcel = () => {
     setIsGenerating(true);
     const startDate = new Date(exportRange.start + 'T00:00:00');
@@ -244,39 +346,48 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
     return <div className="text-center p-10 font-bold">Carregando agenda...</div>;
   }
 
+  // --- RENDERIZAÇÃO PRINCIPAL ---
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
-      <header className="max-w-7xl mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-6">
+    // 'h-screen' garante altura da tela
+    // 'flex flex-col' organiza os itens verticalmente
+    // 'overflow-hidden' impede scroll na janela principal
+    <div className="h-screen bg-slate-50 flex flex-col font-sans overflow-hidden">
+      
+      {/* Cabeçalho: flex-none para manter tamanho original */}
+      <header className="flex-none p-4 md:p-6 max-w-7xl mx-auto w-full flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-xl flex items-center justify-center text-white font-black text-3xl shadow-lg" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div>
+            <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl flex items-center justify-center text-white font-black text-2xl md:text-3xl shadow-lg shrink-0" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div>
             <div>
-                <h1 className="text-3xl md:text-4xl font-black text-slate-900">{room.name}</h1>
-                <p className="text-slate-500 font-medium">Agenda Oficial</p>
+                <h1 className="text-2xl md:text-4xl font-black text-slate-900 leading-tight">{room.name}</h1>
+                <p className="text-slate-500 font-medium text-sm">Agenda Oficial</p>
             </div>
         </div>
-        <div className="flex flex-wrap gap-3 items-center justify-center">
-            {isLoggedIn && (<button onClick={handleFollow} className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold transition-all ${isFollowing ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>{isFollowing ? '✓ Seguindo' : '+ Seguir'}</button>)}
-            <button onClick={handleShare} className="relative flex items-center gap-2 px-5 py-2.5 rounded-full bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all text-sm"><Share2 size={16} /> {copySuccess ? copySuccess : 'Compartilhar'}</button>
-            <a href={googleUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all text-sm"><CalIcon size={16} /> Add Google</a>
-            <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all text-sm shadow-md"><Download size={16} /> Exportar</button>
+        <div className="flex flex-wrap gap-2 items-center justify-center">
+            {isLoggedIn && (<button onClick={handleFollow} className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold transition-all text-sm whitespace-nowrap ${isFollowing ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>{isFollowing ? '✓ Seguindo' : '+ Seguir'}</button>)}
+            <button onClick={handleShare} className="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all text-sm whitespace-nowrap"><Share2 size={16} /> <span className="hidden sm:inline">{copySuccess ? copySuccess : 'Compartilhar'}</span></button>
+            <a href={googleUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all text-sm whitespace-nowrap"><CalIcon size={16} /> <span className="hidden sm:inline">Google</span></a>
+            <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all text-sm shadow-md whitespace-nowrap"><Download size={16} /> <span className="hidden sm:inline">Exportar</span></button>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto mb-6">
+      {/* Barra de Busca: flex-none */}
+      <div className="flex-none px-4 md:px-6 max-w-7xl mx-auto w-full mb-4">
         <div className="relative w-full md:w-1/3">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-slate-400" /></div>
-            <input type="text" className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Filtrar eventos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
+            <input type="text" className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-xl bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" placeholder="Filtrar eventos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto bg-white p-4 rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+      {/* Área Principal (Calendário): flex-1 ocupa todo o espaço restante */}
+      <main className="flex-1 px-4 md:px-6 pb-4 md:pb-6 max-w-7xl mx-auto w-full overflow-hidden">
+        {/* Container do Calendário com h-full para usar 100% da área disponível */}
+        <div className="h-full bg-white p-2 md:p-4 rounded-2xl shadow-xl border border-slate-200">
             <Calendar
                 localizer={localizer}
                 events={filteredEvents}
                 defaultView="month"
                 views={['month', 'week', 'day', 'agenda']}
                 culture="pt-BR"
-                style={{ height: 700 }}
                 date={currentDate}
                 onNavigate={(date) => setCurrentDate(date)}
                 components={{ event: CustomEvent }}
@@ -285,8 +396,10 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
                 popup={true}
                 allDayAccessor="allDay"
             />
+        </div>
       </main>
 
+      {/* Modal de Detalhes do Evento */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in border-t-8" style={{borderColor: selectedEvent.resource.color}}>
@@ -317,6 +430,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
         </div>
       )}
 
+      {/* Modal de Exportação */}
       {isExportModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-in fade-in zoom-in">
