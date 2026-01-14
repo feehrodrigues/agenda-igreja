@@ -2,18 +2,19 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
-import format from 'date-fns/format';
-import parse from 'date-fns/parse';
-import startOfWeek from 'date-fns/startOfWeek';
-import getDay from 'date-fns/getDay';
-import getDate from 'date-fns/getDate';
+import { format, parse, startOfWeek, getDay, getDate, addHours, startOfHour, set } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { createEvent, updateEvent, deleteEvent, createCategory, deleteCategory, updateRoom, deleteRoom } from '../../actions'; 
 import { Trash2, Plus, AlertTriangle, ArrowLeft, ExternalLink, Check, Repeat, Layers, Clock, CalendarDays, Settings, ShieldAlert, Search, X } from 'lucide-react'; 
 
+// 1. Declara os locales
 const locales = { 'pt-BR': ptBR };
+
+// 2. Usa os locales para criar o localizer
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
+
+
 
 // --- FUNÇÕES AUXILIARES ---
 
@@ -81,8 +82,32 @@ function parseRRule(rruleString = '') {
     return options;
 }
 
+const TimeGridEvent = ({ event }) => {
+    const bgColor = event.resource.color;
+    const textColor = getContrastColor(bgColor);
+
+    return (
+        <div style={{ backgroundColor: bgColor, color: textColor, height: '100%', padding: '2px 4px', borderRadius: '4px', overflow: 'hidden' }}>
+            <p style={{ fontWeight: 'bold', fontSize: '12px', margin: 0, padding: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{event.title}</p>
+            {!event.allDay && (
+                <p style={{ fontSize: '10px', margin: 0, padding: 0, opacity: 0.8 }}>
+                    {format(event.start, 'HH:mm')} - {format(event.end, 'HH:mm')}
+                </p>
+            )}
+        </div>
+    );
+};
+
 
 export default function AdminCalendar({ room, initialEvents, categories, allParents }) {
+  // No início do componente AdminCalendar
+const [copySuccess, setCopySuccess] = useState('');
+const handleCopy = (text, message) => {
+    navigator.clipboard.writeText(text).then(() => {
+        setCopySuccess(message);
+        setTimeout(() => setCopySuccess(''), 2000);
+    });
+};
   const router = useRouter();
   const [events, setEvents] = useState(initialEvents.map(e => ({ ...e, start: new Date(e.start), end: new Date(e.end) })));
   
@@ -101,7 +126,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
   
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedOriginalDate, setSelectedOriginalDate] = useState(null);
-  const [formData, setFormData] = useState({ title: '', description: '', start: '', end: '', categoryId: '', cascade: false });
+  const [formData, setFormData] = useState({ title: '', description: '', start: '', end: '', categoryId: '', cascade: false, allDay: false });
   const [settingsData, setSettingsData] = useState({ name: room.name, color: room.color, parentId: room.parentId || '' });
   const [rruleOptions, setRruleOptions] = useState({ freq: 'NONE', interval: 1, byDay: [], monthlyType: 'day', endType: 'never', until: '', count: 13 });
 
@@ -158,30 +183,63 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
   };
 
   const prepareForm = (evt = null, slot = null) => {
-    if (evt) {
+    if (evt) { // Editando um evento existente
         setSelectedEvent(evt);
         setSelectedOriginalDate(evt.start);
         setFormData({
-            title: evt.title, description: evt.description || '', 
-            start: format(evt.start, "yyyy-MM-dd'T'HH:mm"), 
-            end: format(evt.end, "yyyy-MM-dd'T'HH:mm"), 
-            categoryId: evt.categoryId || '', cascade: evt.cascade
+            title: evt.title, 
+            description: evt.description || '', 
+            start: format(evt.start, "yyyy-MM-dd'T'HH:mm"),
+            end: format(evt.end, "yyyy-MM-dd'T'HH:mm"),
+            categoryId: evt.categoryId || '', 
+            cascade: evt.cascade,
+            allDay: evt.allDay 
         });
-        // ATUALIZADO: Preenche as opções de rrule com base no evento
         setRruleOptions(parseRRule(evt.rrule));
-    } else if (slot) {
+    } else { // Criando um novo evento
         setSelectedEvent(null);
         setSelectedOriginalDate(null);
-        const startStr = format(slot.start, "yyyy-MM-dd'T'HH:mm");
-        const endDate = new Date(slot.start.getTime() + 60 * 60 * 1000); 
-        const endStr = format(endDate, "yyyy-MM-dd'T'HH:mm");
-        setFormData({ title: '', description: '', start: startStr, end: endStr, categoryId: '', cascade: false });
-        // ATUALIZADO: Reseta as opções para um novo evento
-        const weekDayCode = format(slot.start, 'iiii').toUpperCase().substring(0, 2);
+        
+        let startDate, endDate;
+        let isAllDay = false;
+        
+        // ===== LÓGICA DE HORÁRIO REFINADA =====
+        if (slot && slot.slots) { // Garante que 'slot' e 'slot.slots' existem
+            // Se clicou em um dia na visão de mês (slots.length === 1) ou arrastou no dia todo
+            if (slot.slots.length === 1 && slot.action === 'click') {
+                // Define o horário padrão para 19h às 21h do dia clicado
+                startDate = set(slot.start, { hours: 19, minutes: 0, seconds: 0 });
+                endDate = set(slot.start, { hours: 21, minutes: 0, seconds: 0 });
+                isAllDay = false; // O padrão agora não é mais "dia todo"
+            } else { // Clicou e arrastou em um horário (visão de semana/dia)
+                startDate = slot.start;
+                endDate = slot.end;
+                isAllDay = (endDate.getTime() - startDate.getTime()) >= (24 * 60 * 60 * 1000 - 1);
+            }
+        } else { // Clicou no botão "+ Novo" (slot é null)
+            const now = new Date();
+            // Padrão para hoje, das 19h às 21h
+            startDate = set(now, { hours: 19, minutes: 0, seconds: 0 });
+            endDate = set(now, { hours: 21, minutes: 0, seconds: 0 });
+            isAllDay = false;
+        }
+        // ===== FIM DA LÓGICA REFINADA =====
+
+        setFormData({ 
+            title: '', description: '', 
+            start: format(startDate, "yyyy-MM-dd'T'HH:mm"), 
+            end: format(endDate, "yyyy-MM-dd'T'HH:mm"), 
+            categoryId: '', 
+            cascade: false,
+            allDay: isAllDay
+        });
+        
+        const weekDayCode = format(startDate, 'iiii').toUpperCase().substring(0, 2);
         setRruleOptions({ freq: 'NONE', interval: 1, byDay: [weekDayCode], monthlyType: 'day', endType: 'never', until: '', count: 13 });
     }
     setIsModalOpen(true);
   };
+
 
   const handlePreSubmit = async (e) => {
     e.preventDefault();
@@ -280,7 +338,11 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                     selectable
                     onSelectSlot={(slot) => prepareForm(null, slot)}
                     onSelectEvent={(evt) => prepareForm(evt)}
-                    components={{ event: EventComponent }}
+                    components={{ 
+                    month: { event: EventComponent }, // Para a visão de Mês
+                    week: { event: TimeGridEvent },    // Para a visão de Semana
+                    day: { event: TimeGridEvent },     // Para a visão de Dia
+                }}                    
                     messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Sem eventos.", showMore: total => `+${total} ver mais` }}
                     // ADICIONADO: Ativa o popup de "ver mais"
                     popup={true}
@@ -346,6 +408,24 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                           </div>
                       </div>
                   </div>
+                  {/* Bloco de Compartilhamento */}
+<div className="mt-6 space-y-2">
+    <h3 className="text-xs font-bold text-slate-500 uppercase">Compartilhar</h3>
+    <div className="bg-slate-50 border rounded-lg p-3 flex justify-between items-center">
+        <span className="text-sm font-medium text-slate-700">Link da Agenda Pública</span>
+        <button type="button" onClick={() => handleCopy(`${window.location.origin}/${room.slug}`, 'Link copiado!')} className="text-sm font-bold bg-white border px-3 py-1 rounded-md hover:bg-slate-100">
+            {copySuccess === 'Link copiado!' ? 'Copiado!' : 'Copiar'}
+        </button>
+    </div>
+    {room.inviteCode && (
+        <div className="bg-slate-50 border rounded-lg p-3 flex justify-between items-center">
+            <span className="text-sm font-medium text-slate-700">Código de Convite</span>
+            <button type="button" onClick={() => handleCopy(room.inviteCode, 'Código copiado!')} className="text-sm font-bold bg-white border px-3 py-1 rounded-md hover:bg-slate-100">
+                {copySuccess === 'Código copiado!' ? 'Copiado!' : 'Copiar'}
+            </button>
+        </div>
+    )}
+</div>
                   <div className="mt-8 pt-4 border-t flex justify-end gap-2">
                       <button onClick={() => setIsSettingsModalOpen(false)} className="px-4 py-2 text-slate-500 font-bold">Cancelar</button>
                       <button onClick={handleUpdateRoom} disabled={isLoading} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-blue-700 transition">{isLoading ? '...' : 'Salvar'}</button>
@@ -357,54 +437,67 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
               </div>
           </div>
       )}
-      {/* MODAL PRINCIPAL DE EVENTO ATUALIZADO */}
-      {/* MODAL PRINCIPAL DE EVENTO ATUALIZADO */}
+
+      {/* MODAL PRINCIPAL DE EVENTO - VERSÃO FINAL E CORRIGIDA */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-                <div className="p-6 border-b flex justify-between items-center bg-slate-50 rounded-t-2xl">
+                <div className="p-6 border-b flex justify-between items-center bg-slate-50 rounded-t-2xl flex-shrink-0">
                     <h2 className="text-xl font-black text-slate-800">{selectedEvent ? 'Editar Evento' : 'Novo Evento'}</h2>
                     <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
                 </div>
-                <div className="p-6 overflow-y-auto custom-scrollbar space-y-5">
-                    <div className="space-y-4">
-                        <input value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} placeholder="Adicionar título" className="w-full text-2xl font-medium border-b-2 border-slate-200 focus:border-blue-500 outline-none pb-2 placeholder:text-slate-300" autoFocus />
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="bg-slate-50 p-3 rounded-lg border"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Início</label><input type="datetime-local" value={formData.start} onChange={e => setFormData({...formData, start: e.target.value})} className="w-full bg-transparent font-semibold outline-none text-sm"/></div>
-                            <div className="bg-slate-50 p-3 rounded-lg border"><label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Fim</label><input type="datetime-local" value={formData.end} onChange={e => setFormData({...formData, end: e.target.value})} className="w-full bg-transparent font-semibold outline-none text-sm"/></div>
+                
+                <form onSubmit={handlePreSubmit} className="flex flex-col overflow-hidden">
+                    <div className="p-6 overflow-y-auto custom-scrollbar space-y-5 flex-grow">
+                        <div className="space-y-4">
+                          <input name="title" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} placeholder="Adicionar título" className="w-full text-2xl font-medium border-b-2 border-slate-200 focus:border-blue-500 outline-none pb-2 placeholder:text-slate-300" autoFocus />
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-slate-50 p-3 rounded-lg border">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Início</label>
+                                    <input type={formData.allDay ? "date" : "datetime-local"} value={formData.allDay ? formData.start.split('T')[0] : formData.start} onChange={e => setFormData({...formData, start: e.target.value})} className="w-full bg-transparent font-semibold outline-none text-sm"/>
+                                </div>
+                                {!formData.allDay && (
+                                <div className="bg-slate-50 p-3 rounded-lg border">
+                                    <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Fim</label>
+                                    <input type="datetime-local" value={formData.end} onChange={e => setFormData({...formData, end: e.target.value})} className="w-full bg-transparent font-semibold outline-none text-sm"/>
+                                </div>
+                                )}
+                            </div>
+                             <div className={`flex items-center gap-3 border p-3 rounded-lg cursor-pointer transition-colors select-none ${formData.allDay ? 'bg-blue-50 border-blue-200' : 'bg-white hover:bg-slate-50'}`} onClick={() => setFormData({...formData, allDay: !formData.allDay})}>
+                                <div className={`w-5 h-5 rounded border flex items-center justify-center ${formData.allDay ? 'bg-blue-600 border-blue-600' : 'border-slate-300'}`}>{formData.allDay && <Check size={14} className="text-white"/>}</div><span className="text-sm font-bold text-slate-700">Dia todo</span>
+                            </div>
                         </div>
-                        <div className="flex flex-col md:flex-row gap-4">
-                             <select value={formData.categoryId} onChange={e => setFormData({...formData, categoryId: e.target.value})} className="p-3 border rounded-lg bg-white flex-1 font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-100">
+                          <div className="flex flex-col md:flex-row gap-4">
+                             <select name="categoryId" value={formData.categoryId} onChange={e => setFormData({...formData, categoryId: e.target.value})} className="p-3 border rounded-lg bg-white flex-1 font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-100">
                                 <option value="">Sem Categoria</option>
                                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                             <div className={`flex items-center gap-3 border p-3 rounded-lg cursor-pointer transition-colors ${formData.cascade ? 'bg-blue-50 border-blue-200' : 'bg-white hover:bg-slate-50'}`} onClick={() => setFormData({...formData, cascade: !formData.cascade})}>
                                 <div className={`w-5 h-5 rounded border flex items-center justify-center ${formData.cascade ? 'bg-blue-600 border-blue-600' : 'border-slate-300'}`}>{formData.cascade && <Check size={14} className="text-white"/>}</div><span className="text-sm font-bold text-slate-700 select-none">Visível para filhos?</span>
                             </div>
+                          </div>
+                          <textarea name="description" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Descrição..." className="w-full p-4 border rounded-lg bg-slate-50 outline-none min-h-[100px] resize-none text-sm"/>
                         </div>
-                        <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Descrição..." className="w-full p-4 border rounded-lg bg-slate-50 outline-none min-h-[100px] resize-none text-sm"/>
-                    </div>
-                    
-                    {/* ===== CORREÇÃO APLICADA AQUI ===== */}
-                    {/* A condição !selectedEvent foi removida para que este bloco apareça sempre */}
-                    <div className="border rounded-xl p-5 bg-slate-50 space-y-4">
-                        <div className="flex items-center gap-2 mb-2"><Repeat className="text-slate-400" size={18} /><span className="font-bold text-slate-700">Repetição Personalizada</span></div>
-                        <div className="flex items-center gap-4 flex-wrap">
+                        
+                        <div className="border rounded-xl p-5 bg-slate-50 space-y-4">
+                          <div className="flex items-center gap-2 mb-2"><Repeat className="text-slate-400" size={18} /><span className="font-bold text-slate-700">Repetição Personalizada</span></div>
+                          <div className="flex items-center gap-4 flex-wrap">
                             <div className="flex items-center gap-2"><span className="text-sm text-slate-600">A cada:</span><input type="number" min="1" value={rruleOptions.interval} onChange={e => setRruleOptions({...rruleOptions, interval: parseInt(e.target.value)})} className="w-16 p-2 border rounded text-center font-bold"/></div>
                             <select value={rruleOptions.freq} onChange={e => setRruleOptions({...rruleOptions, freq: e.target.value})} className="p-2 border rounded font-bold text-slate-700"><option value="NONE">Não se repete</option><option value="DAILY">Dia(s)</option><option value="WEEKLY">Semana(s)</option><option value="MONTHLY">Mês(es)</option><option value="YEARLY">Ano(s)</option></select>
-                        </div>
-                        {rruleOptions.freq === 'WEEKLY' && (
+                          </div>
+                          {rruleOptions.freq === 'WEEKLY' && (
                            <div className="flex gap-2 justify-center pt-2">
                                {['D','S','T','Q','Q','S','S'].map((d, i) => { const code = ['SU','MO','TU','WE','TH','FR','SA'][i]; const isSelected = rruleOptions.byDay.includes(code); return (<button key={code} type="button" onClick={() => { const newDays = isSelected ? rruleOptions.byDay.filter(x => x !== code) : [...rruleOptions.byDay, code]; setRruleOptions({...rruleOptions, byDay: newDays}); }} className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${isSelected ? 'bg-blue-600 text-white scale-110' : 'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}>{d}</button>) })}
                            </div>
-                        )}
-                        {rruleOptions.freq === 'MONTHLY' && formData.start && (
+                          )}
+                          {rruleOptions.freq === 'MONTHLY' && formData.start && (
                             <div className="space-y-2 text-sm text-slate-600 bg-white p-3 rounded border">
                                 <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="monthlyType" checked={rruleOptions.monthlyType === 'day'} onChange={() => setRruleOptions({...rruleOptions, monthlyType: 'day'})} /><span>Mensal no dia {getDate(new Date(formData.start))}</span></label>
                                 <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="monthlyType" checked={rruleOptions.monthlyType === 'pos'} onChange={() => setRruleOptions({...rruleOptions, monthlyType: 'pos'})} /><span>Mensal na {Math.ceil(getDate(new Date(formData.start))/7)}ª {format(new Date(formData.start), 'iiii', { locale: ptBR })}</span></label>
                             </div>
-                        )}
-                        {rruleOptions.freq !== 'NONE' && (
+                          )}
+                          {rruleOptions.freq !== 'NONE' && (
                             <div className="pt-2 border-t mt-2">
                                 <span className="text-xs font-bold text-slate-400 uppercase block mb-2">Termina em</span>
                                 <div className="space-y-2 text-sm">
@@ -413,28 +506,30 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                                     <label className="flex items-center gap-2"><input type="radio" name="endType" checked={rruleOptions.endType === 'count'} onChange={() => setRruleOptions({...rruleOptions, endType: 'count'})} /> Após: <input type="number" disabled={rruleOptions.endType !== 'count'} value={rruleOptions.count} onChange={e => setRruleOptions({...rruleOptions, count: parseInt(e.target.value)})} className="w-16 border rounded p-1 ml-2 disabled:opacity-50"/> ocorrências</label>
                                 </div>
                             </div>
+                          )}
+                        </div>
+
+                        {selectedEvent && (
+                          <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex flex-col gap-3">
+                              <div className="flex items-center gap-2 text-red-700 font-bold text-sm"><Trash2 size={16} /> Opções de Exclusão</div>
+                              <div className="flex flex-wrap gap-2">
+                                 <button type="button" onClick={() => handleDelete('all')} className="flex-1 bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-lg text-sm font-bold transition">Tudo</button>
+                                 {selectedEvent.rrule && (
+                                     <>
+                                         <button type="button" onClick={() => handleDelete('single')} className="flex-1 bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-lg text-sm font-bold transition">Só este</button>
+                                         <button type="button" onClick={() => handleDelete('future')} className="flex-1 bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-lg text-sm font-bold transition">Este e futuros</button>
+                                     </>
+                                 )}
+                              </div>
+                         </div>
                         )}
                     </div>
 
-                    {selectedEvent && (
-                       <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex flex-col gap-3">
-                             <div className="flex items-center gap-2 text-red-700 font-bold text-sm"><Trash2 size={16} /> Opções de Exclusão</div>
-                             <div className="flex flex-wrap gap-2">
-                                <button type="button" onClick={() => handleDelete('all')} className="flex-1 bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-lg text-sm font-bold transition">Tudo</button>
-                                {selectedEvent.rrule && (
-                                    <>
-                                        <button type="button" onClick={() => handleDelete('single')} className="flex-1 bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-lg text-sm font-bold transition">Só este</button>
-                                        <button type="button" onClick={() => handleDelete('future')} className="flex-1 bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-lg text-sm font-bold transition">Este e futuros</button>
-                                    </>
-                                )}
-                             </div>
-                        </div>
-                    )}
-                </div>
-                <div className="p-6 border-t bg-slate-50 rounded-b-2xl flex justify-end gap-3">
-                    <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-200 rounded-xl transition">Cancelar</button>
-                    <button type="button" onClick={handlePreSubmit} disabled={isLoading} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 hover:shadow-blue-300 transition-all active:scale-95 disabled:opacity-70 flex items-center gap-2">{isLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Check size={20}/>}{selectedEvent ? 'Atualizar Evento' : 'Salvar Evento'}</button>
-                </div>
+                    <div className="p-6 border-t bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+                        <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-200 rounded-xl transition">Cancelar</button>
+                        <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 hover:shadow-blue-300 transition-all active:scale-95 disabled:opacity-70 flex items-center gap-2">{isLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Check size={20}/>}{selectedEvent ? 'Atualizar Evento' : 'Salvar Evento'}</button>
+                    </div>
+                </form>
             </div>
         </div>
       )}

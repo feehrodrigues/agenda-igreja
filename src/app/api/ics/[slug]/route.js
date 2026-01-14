@@ -1,52 +1,87 @@
+// Local do arquivo: src/app/api/ics/[slug]/route.js
+
 import { PrismaClient } from "@prisma/client";
-import ical from 'ical-generator';
+import ICalGenerator from 'ical-generator';
+import { getRoomEvents } from "@/app/actions"; // Ajuste o caminho se for diferente
 import { rrulestr } from 'rrule';
 
 const prisma = new PrismaClient();
 
+// Função para expandir eventos recorrentes (essencial para o .ics)
+function expandEvents(events) {
+  const startRange = new Date(new Date().setFullYear(new Date().getFullYear() - 1));
+  const endRange = new Date(new Date().setFullYear(new Date().getFullYear() + 2));
+  let expanded = [];
+  
+  events.forEach(event => {
+    const exceptionDates = event.exceptions ? event.exceptions.map(ex => ex.exceptionDate) : [];
+    
+    const baseEvent = { 
+        id: event.id, 
+        title: event.title, 
+        description: event.description,
+        allDay: event.allDay,
+        start: event.start,
+        end: event.end, 
+    };
+
+    if (event.isRecurring && event.rrule) {
+      try {
+        const rule = rrulestr(event.rrule, { dtstart: event.start });
+        const dates = rule.between(startRange, endRange);
+        
+        dates.forEach(date => {
+          // Verifica se a ocorrência está na lista de exceções
+          const isException = exceptionDates.some(exDate => exDate.getTime() === date.getTime());
+          
+          if (!isException) {
+            const duration = event.end.getTime() - event.start.getTime();
+            expanded.push({ ...baseEvent, start: date, end: new Date(date.getTime() + duration) });
+          }
+        });
+      } catch (e) { 
+        console.error("Erro ao expandir RRULE para ICS:", e); 
+        // Adiciona o evento original se a regra falhar
+        expanded.push(baseEvent);
+      }
+    } else { 
+        expanded.push(baseEvent); 
+    }
+  });
+  return expanded;
+}
+
+
 export async function GET(request, { params }) {
     const { slug } = params;
+    if (!slug) {
+        return new Response("Agenda não encontrada", { status: 404 });
+    }
+
+    const room = await prisma.room.findUnique({ where: { slug } });
+    if (!room) {
+        return new Response("Agenda não encontrada", { status: 404 });
+    }
     
-    const room = await prisma.room.findUnique({ 
-        where: { slug },
-        include: { parent: true, children: true }
-    });
+    const cal = new ICalGenerator({ name: `${room.name} | AgendaIgreja` });
 
-    if (!room) return new Response("Agenda não encontrada", { status: 404 });
+    const rawEvents = await getRoomEvents(room.id);
+    const events = expandEvents(rawEvents);
 
-    // Reutiliza logica simplificada de busca de eventos (copiada ou importada)
-    // Para simplificar aqui, vou buscar direto os eventos da sala e pais cascatas
-    const parentIds = [];
-    if(room.parentId) parentIds.push(room.parentId);
-
-    const rawEvents = await prisma.event.findMany({
-        where: {
-            OR: [
-                { roomId: room.id },
-                { roomId: { in: parentIds }, cascade: true }
-            ]
-        }
-    });
-
-    const calendar = ical({ name: `Agenda - ${room.name}` });
-
-    rawEvents.forEach(event => {
-        calendar.createEvent({
+    events.forEach(event => {
+        cal.createEvent({
             start: event.start,
             end: event.end,
             summary: event.title,
-            description: event.description,
-            location: room.name,
-            // Se for recorrente, o Google Agenda entende melhor se expandirmos ou enviarmos a RRULE
-            // O ical-generator suporta repeating via repeating property, mas rrule string direta é melhor para compatibilidade
-            repeating: event.rrule ? event.rrule : null 
+            description: event.description || '',
+            allDay: event.allDay,
         });
     });
 
-    return new Response(calendar.toString(), {
+    return new Response(cal.toString(), {
         headers: {
             'Content-Type': 'text/calendar; charset=utf-8',
-            'Content-Disposition': `attachment; filename="${slug}.ics"`
-        }
+            'Content-Disposition': `attachment; filename="${slug}.ics"`,
+        },
     });
 }

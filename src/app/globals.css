@@ -1,149 +1,151 @@
-/* PASSO 1: Importar a fonte (DEVE ser a primeira linha) */
+/* PASSO 1: Importar a fonte e o Tailwind */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
-/* PASSO 2: Diretivas do Tailwind (ÚNICAS E ESSENCIAIS) */
+/* PASSO 2: Diretivas do Tailwind */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* PASSO 3: Estilo base para todo o site */
+/* PASSO 3: Estilo base */
 @layer base {
   body {
     font-family: 'Inter', sans-serif;
-    background-color: #f8fafc; /* Cinza Gelo */
-    color: #0f172a; /* Azul Escuro */
+    background-color: #f8fafc;
+    color: #0f172a;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* PASSO 4: Estilos customizados para o Calendário "Padrão Google" */
+/* 
+==============================================
+PASSO 4: ESTILOS COMPLETOS PARA REACT-BIG-CALENDAR (VERSÃO FINAL)
+==============================================
+*/
 
-/* .rbc-calendar { border: none !important; font-family: inherit !important; }
-.rbc-toolbar { margin-bottom: 2rem !important; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
-.rbc-toolbar .rbc-toolbar-label { font-size: 1.75rem !important; font-weight: 800 !important; color: #1e293b; }
-.rbc-btn-group button { background: white !important; border: 1px solid #cbd5e1 !important; color: #334155 !important; font-weight: 600 !important; padding: 0.6rem 1.2rem !important; transition: all 0.2s ease; }
-.rbc-btn-group button:first-child { border-radius: 0.75rem 0 0 0.75rem; }
-.rbc-btn-group button:last-child { border-radius: 0 0.75rem 0.75rem 0; }
-.rbc-btn-group button:hover { background-color: #f1f5f9 !important; }
-.rbc-btn-group button.rbc-active { background-color: #0ea5e9 !important; color: white !important; border-color: #0ea5e9 !important; box-shadow: 0 4px 14px -4px rgb(14 165 233 / 50%); }
-
-.rbc-header { padding: 1rem 0 !important; font-weight: 600 !important; font-size: 0.8rem !important; text-transform: uppercase !important; letter-spacing: 0.05em !important; color: #64748b !important; border: none !important; text-align: center; }
-.rbc-month-view { border: 1px solid #e2e8f0 !important; border-radius: 1.5rem !important; background: white !important; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.05); overflow: hidden; }
-.rbc-day-bg { border-left: 1px solid #f1f5f9 !important; }
-.rbc-off-range-bg { background-color: #f8fafc !important; }
-.rbc-today { background-color: #f0f9ff !important; }
-
-.rbc-date-cell { padding: 0.75rem !important; font-size: 0.9rem !important; font-weight: 600 !important; color: #1e293b !important; transition: background-color 0.2s; text-align: center; }
-.rbc-date-cell:hover { background-color: #f1f5f9; }
-.rbc-event { background-color: transparent !important; padding: 1px 0 !important; border: none !important; }
-.custom-event { padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s ease; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px; }
-.custom-event:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
-
-.rbc-agenda-view { border: 1px solid #e2e8f0 !important; border-radius: 1.5rem !important; background: white !important; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.05); }
-.rbc-agenda-table { border: none !important; }
-.rbc-agenda-content { padding: 1rem; } */
-
-
-
-/* 1. Dias de outros meses com menos opacidade */
-.rbc-off-range-bg {
-  background-color: #f8fafc !important;
-  opacity: 0.4; /* Deixa bem clarinho */
-  pointer-events: none; /* Opcional: impede clicar em dias de outro mês */
+/* --- BARRA DE FERRAMENTAS --- */
+.rbc-toolbar {
+  margin-bottom: 1.5rem !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.rbc-toolbar .rbc-toolbar-label {
+  font-size: 1.5rem !important;
+  font-weight: 800 !important;
+  color: #1e293b;
+}
+.rbc-btn-group button {
+  background: white !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+  font-weight: 600 !important;
+  padding: 0.5rem 1rem !important;
+  transition: all 0.2s ease;
+}
+.rbc-btn-group button.rbc-active {
+  background-color: #2563eb !important;
+  color: white !important;
+  border-color: #2563eb !important;
 }
 
-/* 2. Célula do dia */
-.rbc-date-cell {
-  padding: 4px 8px !important;
-  font-size: 0.85rem !important;
-  font-weight: 700 !important;
-  text-align: right;
-  margin-bottom: 4px;
+/* --- CABEÇALHOS (Dias da semana) --- */
+.rbc-header {
+  padding: 0.75rem 0 !important;
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  text-transform: uppercase !important;
+  color: #64748b !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  text-align: center;
 }
 
-/* 3. Eventos Otimizados (para caber 3 ou mais) */
-.rbc-event {
-  background-color: transparent !important;
-  padding: 1px 0 !important;
-  min-height: auto !important; /* Remove altura forçada */
-}
-
-.custom-event {
-  padding: 2px 6px; /* Padding menor */
-  border-radius: 4px;
-  font-size: 0.7rem; /* Fonte menor para caber mais texto */
-  line-height: 1.2;
-  font-weight: 600;
-  color: white;
-  margin-bottom: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Remove a barra de rolagem feia dentro das células se houver muitos eventos */
+/* --- VISÃO MÊS --- */
 .rbc-month-view {
   border: 1px solid #e2e8f0 !important;
   border-radius: 1rem !important;
   overflow: hidden;
+  background-color: white;
 }
-
-/* Ajuste da altura das linhas para garantir que caibam os eventos */
-.rbc-month-row {
-  min-height: 120px; /* Garante altura mínima para os dias */
+.rbc-day-bg {
+  border-left: 1px solid #f1f5f9 !important;
 }
-
-/* BOTÃO "Ver mais" (+2 mais) */
-.rbc-show-more {
-  background-color: transparent !important;
-  color: #64748b !important;
-  font-size: 0.75rem !important;
-  font-weight: bold !important;
-  margin-top: 2px;
+.rbc-month-row:not(:first-child) .rbc-day-bg {
+  border-top: 1px solid #f1f5f9 !important;
+}
+.rbc-off-range-bg { background-color: #f8fafc !important; }
+.rbc-today { background-color: #eff6ff !important; }
+.rbc-date-cell > a {
   display: block;
-  text-align: center;
+  padding: 0.5rem 0.5rem 0 0;
+  text-align: right;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #334155;
+}
+.rbc-current > a {
+  font-weight: 900;
+  color: #2563eb;
+}
+.rbc-month-row {
+  min-height: 110px;
+}
+.rbc-show-more {
+  display: block;
+  text-align: right;
+  padding-right: 0.5rem;
+  color: #3b82f6 !important;
+  font-weight: 600 !important;
+  font-size: 0.7rem !important;
+  text-decoration: none !important;
+  margin-top: 2px;
 }
 .rbc-show-more:hover {
-  text-decoration: underline;
-  color: #2563eb !important;
-}
-/* --- ADICIONAR NO FIM DE globals.css --- */
-
-/* 1. Dias de outro mês com menos opacidade */
-.rbc-off-range-bg {
-  background-color: #f8fafc !important;
-  opacity: 0.3 !important; /* Bem clarinho */
+  text-decoration: underline !important;
 }
 
-/* 2. Ajuste para caber mais eventos */
+/* --- VISÃO SEMANA/DIA --- */
+.rbc-time-view {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 1rem !important;
+  overflow: hidden;
+  background-color: white;
+}
+.rbc-time-header-content { border-left: 1px solid #e2e8f0; }
+.rbc-time-gutter { border-right: 1px solid #e2e8f0; }
+.rbc-day-slot .rbc-time-slot { border-top: 1px solid #f1f5f9 !important; }
+.rbc-time-column { border-left: 1px solid #e2e8f0 !important; }
+
+/* --- EVENTO --- */
 .rbc-event {
   background-color: transparent !important;
-  padding: 1px 0 !important;
-  min-height: auto !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: 12px;
+}
+.rbc-day-slot .rbc-event {
+  position: absolute !important;
+  left: 0 !important;
+  right: 10px !important;
+  height: 100%;
+}
+.rbc-event-content, .rbc-event-content > * {
+  height: 100%;
+  width: 100%;
+  color: inherit;
+}
+.rbc-event-label {
+  display: none !important;
 }
 
-.rbc-row-content {
-    z-index: 2; /* Garante que os eventos fiquem sobre o fundo */
-}
-
-.rbc-date-cell {
-    font-size: 0.8rem;
-    font-weight: bold;
-    color: #64748b;
-    padding-right: 8px;
-}
-
-/* Configuração de Impressão (PDF) */
+/* --- Impressão --- */
 @media print {
-  @page { size: A4 portrait; margin: 1cm; } /* Retrato para caber a lista embaixo */
+  @page { size: A4 portrait; margin: 1cm; }
   body { background: white; color: black; }
-  
-  /* Remove scrollbars e alturas fixas na impressão */
-  .rbc-calendar { height: auto !important; min-height: 500px; overflow: visible !important; }
+  .rbc-calendar { height: auto !important; overflow: visible !important; }
   .rbc-month-view { border: 1px solid #000 !important; }
-  
-  /* Força cores de fundo na impressão (Chrome/Edge precisa disso) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }

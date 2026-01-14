@@ -165,13 +165,26 @@ export async function createEvent(formData) {
   try {
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     const categoryId = formData.get("categoryId");
+    const isAllDay = formData.get("allDay") === "on";
+
+    let startDate = new Date(formData.get("start"));
+    let endDate = new Date(formData.get("end"));
+
+    if (isAllDay) {
+      startDate.setHours(0, 0, 0, 0);
+      // O fim do dia é o início do próximo dia, como o Google Calendar faz
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 1);
+    }
+    
     await prisma.event.create({
       data: {
         roomId,
         title: formData.get("title"),
         description: formData.get("description"),
-        start: new Date(formData.get("start")),
-        end: new Date(formData.get("end")),
+        start: startDate, // Usando o objeto Date ajustado
+        end: endDate,     // Usando o objeto Date ajustado
+        allDay: isAllDay,
         cascade: formData.get("cascade") === "on", 
         categoryId: categoryId === "" ? null : categoryId,
         isRecurring: !!formData.get("rruleString"),
@@ -181,7 +194,7 @@ export async function createEvent(formData) {
     revalidatePath(`/${room.slug}`);
     revalidatePath(`/dashboard/${room.slug}`);
     return { success: true };
-  } catch (e) { return { success: false, error: "Erro ao salvar o evento." }; }
+  } catch (e) { console.error(e); return { success: false, error: "Erro ao salvar o evento." }; }
 }
 
 export async function updateEvent(formData) {
@@ -201,18 +214,24 @@ export async function updateEvent(formData) {
     try {
         const room = await prisma.room.findUnique({ where: { id: event.roomId } });
         const categoryId = formData.get("categoryId");
-        const newStart = new Date(formData.get("start"));
-        const newEnd = new Date(formData.get("end"));
+        const isAllDay = formData.get("allDay") === "on";
+
+        let newStart = new Date(formData.get("start"));
+        let newEnd = new Date(formData.get("end"));
+
+        if (isAllDay) {
+          newStart.setHours(0, 0, 0, 0);
+          newEnd = new Date(newStart);
+          newEnd.setDate(newEnd.getDate() + 1);
+        }
+
         const title = formData.get("title");
         const description = formData.get("description");
         const cascade = formData.get("cascade") === "on";
-        
-        // A nova regra de repetição, vinda diretamente do formulário.
-        // Se vier vazia, o evento deixará de ser recorrente.
         const rruleString = formData.get("rruleString") || null;
 
         const commonData = {
-            title, description, cascade, 
+            title, description, cascade, allDay: isAllDay,
             categoryId: categoryId === "" ? null : categoryId,
         };
 
@@ -223,25 +242,19 @@ export async function updateEvent(formData) {
                     ...commonData, 
                     start: newStart, 
                     end: newEnd, 
-                    isRecurring: !!rruleString, // A recorrência depende da nova string
-                    rrule: rruleString,          // Salva a nova string ou null
-                    // Limpa exceções antigas se a regra de repetição mudar completamente
-                    exceptions: {
-                        deleteMany: {},
-                    },
+                    isRecurring: !!rruleString,
+                    rrule: rruleString,
+                    exceptions: { deleteMany: {} },
                 }
             });
         } 
         else if (updateMode === 'single') {
-            // Cria exceção na data original
             await prisma.eventException.create({ data: { originalEventId: eventId, exceptionDate: originalDate } });
-            // Cria o evento individual solto
             await prisma.event.create({
                 data: { roomId: event.roomId, ...commonData, start: newStart, end: newEnd, isRecurring: false, rrule: null }
             });
         }
         else if (updateMode === 'future') {
-            // Fecha o evento antigo na data anterior
             const newUntilDate = new Date(originalDate);
             newUntilDate.setDate(newUntilDate.getDate() - 1);
             const untilISO = newUntilDate.toISOString().replace(/[-:.]/g, '').split('T')[0] + 'T235959Z';
@@ -251,7 +264,6 @@ export async function updateEvent(formData) {
             
             await prisma.event.update({ where: { id: eventId }, data: { rrule: updatedOldRRule } });
             
-            // Cria o novo evento daqui pra frente, com a nova regra do formulário
             await prisma.event.create({
                 data: { roomId: event.roomId, ...commonData, start: newStart, end: newEnd, isRecurring: !!rruleString, rrule: rruleString }
             });

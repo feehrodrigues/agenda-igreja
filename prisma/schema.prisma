@@ -57,6 +57,9 @@ model Event {
 
   // AQUI ESTAVA FALTANDO A RELAÇÃO
   exceptions EventException[]
+  
+  allDay      Boolean  @default(false) 
+
 }
 
 model Category {
