@@ -27,6 +27,8 @@ model Room {
 
   broadcastsFrom EventBroadcast[] @relation("FromRoom")
   broadcastsTo   EventBroadcast[] @relation("ToRoom")
+  blockParentCascade Boolean  @default(false) // Novo: Para bloquear o pai
+  targetedEvents     Event[]  @relation("EventTargets") // Novo: Relação para repasse
 }
 
 model Member {
@@ -72,10 +74,13 @@ model Event {
   category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+updatedAt DateTime @default(now()) @updatedAt
 
   exceptions    EventException[]
   broadcasts    EventBroadcast[]
+  visibleToParent  Boolean  @default(false) // Novo: Se o pai pode ver
+  targetRooms      Room[]   @relation("EventTargets") // Novo: Para quem esse evento foi enviado
+
 }
 
 model EventBroadcast {
