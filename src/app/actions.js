@@ -56,8 +56,6 @@ export async function rebroadcastEvent(formData) {
         // NÃO COPIAMOS A RRULE, pois a retransmissão é de uma ocorrência específica.
         isRecurring: false, 
         rrule: null,
-        // A MÁGICA: Linkamos ao evento original
-        originalBroadcastEventId: originalEvent.id, 
         // Lógica de direcionamento para os filhos
         targetRooms: { connect: targetRoomsConnect } 
       }
@@ -216,13 +214,7 @@ include: {
   category: true,
   exceptions: true,
   targetRooms: { select: { id: true } }, // <-- ADICIONADO PARA EDIÇÃO DE ALVOS
-  originalBroadcastEvent: { // Inclui o evento original se este for uma retransmissão
-      select: {
-          room: {
-              select: { name: true }
-          }
-      }
-  }
+  
 }
 
 
