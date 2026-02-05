@@ -526,6 +526,9 @@ export async function deleteCategory(formData) {
 
 // --- ADICIONE AO actions.js ---
 
+// Local: src/app/actions.js
+// Atualize apenas essa função dentro do seu arquivo
+
 export async function getDashboardStats(roomId) {
   const { userId } = await auth();
   if (!userId) return { error: "Não autorizado" };
@@ -534,35 +537,31 @@ export async function getDashboardStats(roomId) {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-  // Busca a sala e os filhos
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     include: { children: true }
   });
 
+  if (!room) return { totalEventsMonth: 0, categoryDistribution: [], childrenActivity: [] };
+  
   const childrenIds = room.children.map(c => c.id);
 
-  // 1. Total de eventos do mês (incluindo filhos)
   const totalEventsMonth = await prisma.event.count({
     where: {
-      OR: [
-        { roomId: roomId },
-        { roomId: { in: childrenIds } }
-      ],
+      OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
       start: { gte: startOfMonth, lte: endOfMonth }
     }
   });
 
-  // 2. Distribuição por Categoria
   const categories = await prisma.category.findMany({
     where: { roomId },
     include: { _count: { select: { events: true } } }
   });
 
-  // 3. Atividade por congregação (Filhos)
   const childrenStats = await prisma.room.findMany({
     where: { parentId: roomId },
     select: {
+      id: true,
       name: true,
       group: true,
       _count: {
@@ -572,9 +571,18 @@ export async function getDashboardStats(roomId) {
   });
 
   return {
-    totalEventsMonth,
-    categoryDistribution: categories.map(c => ({ name: c.name, count: c._count.events, color: c.color })),
-    childrenActivity: childrenStats.map(c => ({ name: c.name, group: c.group || 'Sem Grupo', count: c._count.events }))
+    totalEventsMonth: totalEventsMonth || 0,
+    categoryDistribution: categories.map(c => ({ 
+        name: c.name, 
+        count: c._count.events || 0, 
+        color: c.color 
+    })),
+    childrenActivity: childrenStats.map(c => ({ 
+        id: c.id, 
+        name: c.name, 
+        group: c.group || 'Sem Grupo', 
+        count: c._count.events || 0 
+    }))
   };
 }
 

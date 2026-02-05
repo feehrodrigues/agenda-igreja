@@ -1,4 +1,4 @@
-// Local do arquivo: src/app/dashboard/[slug]/page.js
+// Local: src/app/dashboard/[slug]/page.js
 
 import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
@@ -15,7 +15,9 @@ function expandEvents(events) {
   let expanded = [];
   
   events.forEach(event => {
-    const exceptionDates = event.exceptions ? event.exceptions.map(ex => ex.exceptionDate.toISOString().split('T')[0]) : [];
+    const exceptionDates = event.exceptions ? event.exceptions.map(ex => {
+        try { return ex.exceptionDate.toISOString().split('T')[0]; } catch(e) { return null; }
+    }).filter(Boolean) : [];
     
     const baseEvent = { 
         id: event.id, 
@@ -27,13 +29,12 @@ function expandEvents(events) {
         start: event.start,
         end: event.end,
         roomId: event.roomId,
-        room: event.room,
-        targetRooms: event.targetRooms,
+        room: event.room ? { name: event.room.name, color: event.room.color } : null,
+        targetRooms: event.targetRooms || [],
         visibleToParent: event.visibleToParent,
         allDay: event.allDay,
         resource: { 
             category: event.category,
-            exceptions: event.exceptions,
             roomName: event.room?.name,
             color: event.category?.color || event.room?.color || '#3b82f6' 
         } 
@@ -49,7 +50,7 @@ function expandEvents(events) {
             expanded.push({ ...baseEvent, start: date, end: new Date(date.getTime() + duration) });
           }
         });
-      } catch (e) { console.error("Erro ao expandir RRULE:", e); expanded.push(baseEvent); }
+      } catch (e) { expanded.push(baseEvent); }
     } else { 
         expanded.push(baseEvent); 
     }
@@ -59,49 +60,48 @@ function expandEvents(events) {
 
 export default async function RoomEditorPage({ params }) {
   const { slug } = await params;
-
   const { userId } = await auth();
   if (!userId) redirect("/");
 
+  // BUSCA COM PARENT: TRUE (Essencial para não dar erro no mapa lateral)
   const room = await prisma.room.findUnique({ 
       where: { slug },
-      include: { parent: true, children: true } 
+      include: { 
+          children: true,
+          parent: { select: { id: true, name: true, color: true } } 
+      } 
   });
   
-  if (!room) {
-      return <div className="p-10 text-center font-bold">Agenda "{slug}" não encontrada.</div>;
-  }
+  if (!room) redirect("/dashboard");
 
   const membership = await prisma.member.findUnique({ 
       where: { userId_roomId: { userId, roomId: room.id } } 
   });
 
-  if (!membership) {
-      return <div className="p-10 text-center font-bold">Acesso negado.</div>;
-  }
+  if (!membership) redirect("/dashboard");
 
+  // Busca dados em paralelo para ser mais rápido
   const [rawEvents, stats, categories, allParents] = await Promise.all([
       getRoomEvents(room.id),
       getDashboardStats(room.id),
       prisma.category.findMany({ where: { roomId: room.id }, orderBy: { name: 'asc' } }),
       prisma.room.findMany({ 
           where: { type: { in: ['ministerio', 'setor'] }, id: { not: room.id } }, 
-          orderBy: { name: 'asc' } 
+          select: { id: true, name: true, color: true }
       })
   ]);
 
   const expandedEvents = expandEvents(rawEvents);
   
-  const serializableEvents = expandedEvents.map(event => ({ 
-    ...event, 
-    start: event.start.toISOString(), 
-    end: event.end.toISOString(),
-    canEdit: event.roomId === room.id, 
-    resource: {
-        ...event.resource,
-        category: event.resource.category ? { ...event.resource.category } : null
-    }
-  }));
+  // Serialização ultra-segura para o Vercel
+  const serializableEvents = JSON.parse(JSON.stringify(
+      expandedEvents.map(event => ({ 
+        ...event, 
+        start: event.start.toISOString(), 
+        end: event.end.toISOString(),
+        canEdit: event.roomId === room.id
+      }))
+  ));
 
   return (
     <RoomDashboard 
