@@ -1,5 +1,3 @@
-// Local: src/app/dashboard/[slug]/page.js
-
 import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
 import { redirect } from "next/navigation";
@@ -14,6 +12,8 @@ function expandEvents(events) {
   const endRange = new Date(new Date().setFullYear(new Date().getFullYear() + 2));
   let expanded = [];
   
+  if (!events) return [];
+
   events.forEach(event => {
     const exceptionDates = event.exceptions ? event.exceptions.map(ex => {
         try { return ex.exceptionDate.toISOString().split('T')[0]; } catch(e) { return null; }
@@ -21,21 +21,19 @@ function expandEvents(events) {
     
     const baseEvent = { 
         id: event.id, 
-        title: event.title, 
-        description: event.description, 
-        cascade: event.cascade, 
-        rrule: event.rrule, 
-        categoryId: event.categoryId,
+        title: event.title || "Sem título", 
+        description: event.description || "", 
+        cascade: !!event.cascade, 
+        rrule: event.rrule || null, 
+        categoryId: event.categoryId || null,
         start: event.start,
         end: event.end,
         roomId: event.roomId,
         room: event.room ? { name: event.room.name, color: event.room.color } : null,
-        targetRooms: event.targetRooms || [],
-        visibleToParent: event.visibleToParent,
-        allDay: event.allDay,
+        visibleToParent: !!event.visibleToParent,
+        allDay: !!event.allDay,
         resource: { 
-            category: event.category,
-            roomName: event.room?.name,
+            roomName: event.room?.name || "",
             color: event.category?.color || event.room?.color || '#3b82f6' 
         } 
     };
@@ -63,7 +61,7 @@ export default async function RoomEditorPage({ params }) {
   const { userId } = await auth();
   if (!userId) redirect("/");
 
-  // BUSCA COM PARENT: TRUE (Essencial para não dar erro no mapa lateral)
+  // BUSCA COM PROTEÇÃO
   const room = await prisma.room.findUnique({ 
       where: { slug },
       include: { 
@@ -80,7 +78,6 @@ export default async function RoomEditorPage({ params }) {
 
   if (!membership) redirect("/dashboard");
 
-  // Busca dados em paralelo para ser mais rápido
   const [rawEvents, stats, categories, allParents] = await Promise.all([
       getRoomEvents(room.id),
       getDashboardStats(room.id),
@@ -93,20 +90,16 @@ export default async function RoomEditorPage({ params }) {
 
   const expandedEvents = expandEvents(rawEvents);
   
-  // Serialização ultra-segura para o Vercel
-  const serializableEvents = JSON.parse(JSON.stringify(
-      expandedEvents.map(event => ({ 
-        ...event, 
-        start: event.start.toISOString(), 
-        end: event.end.toISOString(),
-        canEdit: event.roomId === room.id
-      }))
-  ));
+  // SERIALIZAÇÃO ULTRA SEGURA (Evita o erro de Digest)
+  const safeEvents = JSON.parse(JSON.stringify(expandedEvents.map(ev => ({
+      ...ev,
+      canEdit: ev.roomId === room.id
+  }))));
 
   return (
     <RoomDashboard 
         room={JSON.parse(JSON.stringify(room))}
-        initialEvents={serializableEvents} 
+        initialEvents={safeEvents} 
         categories={JSON.parse(JSON.stringify(categories))} 
         allParents={JSON.parse(JSON.stringify(allParents))}
         childrenRooms={JSON.parse(JSON.stringify(room.children))}

@@ -1,5 +1,4 @@
-// Local do arquivo: src/app/[slug]/page.js
-
+// Local: src/app/[slug]/page.js
 import { PrismaClient } from "@prisma/client";
 import { rrulestr } from 'rrule';
 import PublicCalendar from "./PublicCalendar";
@@ -8,11 +7,13 @@ import { getRoomEvents } from "../actions";
 
 const prisma = new PrismaClient();
 
-function expandEvents(events, currentRoomId) {
+function expandEvents(events) {
     const startRange = new Date(new Date().setFullYear(new Date().getFullYear() - 1));
     const endRange = new Date(new Date().setFullYear(new Date().getFullYear() + 2));
     let expanded = [];
     
+    if(!events) return [];
+
     events.forEach(event => {
         const exceptionDates = event.exceptions ? event.exceptions.map(ex => ex.exceptionDate.toISOString().split('T')[0]) : [];
         let eventColor = event.category ? event.category.color : (event.room?.color || '#3b82f6');
@@ -21,11 +22,12 @@ function expandEvents(events, currentRoomId) {
             id: event.id,
             title: event.title, 
             description: event.description,
-            allDay: event.allDay,
+            allDay: !!event.allDay,
+            roomId: event.roomId,
             resource: { 
                 color: eventColor,
-                roomName: event.room?.name,
-                isExternal: event.roomId !== currentRoomId 
+                roomName: event.room?.name || "",
+                isExternal: false
             } 
         };
 
@@ -39,7 +41,7 @@ function expandEvents(events, currentRoomId) {
                         expanded.push({ ...baseEvent, start: date, end: new Date(date.getTime() + duration) });
                      }
                 });
-            } catch (e) { console.error("Invalid RRULE:", e); }
+            } catch (e) { expanded.push({ ...baseEvent, start: event.start, end: event.end }); }
         } else {
             expanded.push({ ...baseEvent, start: event.start, end: event.end });
         }
@@ -48,20 +50,15 @@ function expandEvents(events, currentRoomId) {
 }
 
 export default async function PublicPage({ params }) {
-    // ===== CORREÇÃO APLICADA AQUI =====
-    const { slug } = await params; 
-    // ===================================
-    
-    if (!slug) {
-        return <div>Nome da agenda não fornecido.</div>;
-    }
-    
+    const { slug } = await params;
     const { userId } = await auth();
 
-    const room = await prisma.room.findUnique({ where: { slug }, include: { parent: true } });
-    if (!room) {
-        return <div className="text-center p-10 font-bold">Agenda "{slug}" não encontrada.</div>;
-    }
+    const room = await prisma.room.findUnique({ 
+        where: { slug }, 
+        include: { parent: { select: { name: true, color: true } } } 
+    });
+
+    if (!room) return <div className="text-center p-10 font-bold">Agenda não encontrada.</div>;
 
     let isFollowing = false;
     if (userId) {
@@ -70,13 +67,20 @@ export default async function PublicPage({ params }) {
     }
 
     const rawEvents = await getRoomEvents(room.id);
-    const events = expandEvents(rawEvents, room.id); 
+    const expanded = expandEvents(rawEvents); 
     
-    const serializableEvents = events.map(event => ({ 
-        ...event, 
-        start: event.start.toISOString(), 
-        end: event.end.toISOString() 
-    }));
+    // SERIALIZAÇÃO PARA O VERCEL
+    const serializableEvents = JSON.parse(JSON.stringify(expanded.map(ev => ({
+        ...ev,
+        resource: { ...ev.resource, isExternal: ev.roomId !== room.id }
+    }))));
     
-    return <PublicCalendar room={room} events={serializableEvents} isFollowingInitially={isFollowing} isLoggedIn={!!userId} />;
+    return (
+        <PublicCalendar 
+            room={JSON.parse(JSON.stringify(room))} 
+            events={serializableEvents} 
+            isFollowingInitially={isFollowing} 
+            isLoggedIn={!!userId} 
+        />
+    );
 }
