@@ -190,3 +190,57 @@ Ajuste fino para caber eventos + "ver mais"
   .rbc-month-row { height: 100px !important; overflow: visible !important; }
   .rbc-event { border: 1px solid #000 !important; print-color-adjust: exact !important; }
 }
+
+
+/* --- ESTILO DA AGENDA PÚBLICA (MODERNO) --- */
+
+/* Remove as linhas de grade chatas na visão de lista */
+.rbc-agenda-view table.rbc-agenda-table {
+    border: none !important;
+}
+.rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+    border: none !important;
+    padding: 12px 8px !important;
+    vertical-align: middle !important;
+}
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+    border-bottom: 1px solid #e2e8f0 !important;
+    color: #64748b;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    padding: 10px !important;
+}
+
+/* Estilo da data na lista */
+.rbc-agenda-date-cell {
+    font-weight: 700 !important;
+    color: #334155 !important;
+    font-size: 0.9rem !important;
+}
+
+/* Estilo do tempo na lista */
+.rbc-agenda-time-cell {
+    font-size: 0.8rem !important;
+    color: #64748b !important;
+    text-transform: lowercase;
+    white-space: nowrap !important;
+}
+
+/* Hover na linha */
+.rbc-agenda-view table.rbc-agenda-table tbody > tr:hover {
+    background-color: #f8fafc !important;
+    cursor: pointer;
+}
+
+/* Remove a barra de rolagem feia se possível */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 20px;
+}

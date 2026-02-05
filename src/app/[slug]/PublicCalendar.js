@@ -5,21 +5,23 @@ import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { followRoom } from '@/app/actions';
 import { 
     format, parse, startOfWeek, getDay, isSameMonth, 
-    isSameYear, startOfMonth, endOfMonth, endOfWeek, 
-    isSameDay, startOfYear, endOfYear
+    startOfMonth, endOfMonth, endOfWeek, isSameDay, startOfYear, endOfYear
 } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import { Search, Download, Calendar as CalIcon, Clock, AlignLeft, X, FileSpreadsheet, Share2 } from 'lucide-react'; 
+import { 
+    Search, Download, Calendar as CalIcon, Clock, AlignLeft, X, 
+    FileSpreadsheet, Share2, MapPin, ChevronLeft, ChevronRight, 
+    LayoutList, Grid3x3, CalendarDays, MoreHorizontal, FileText, ChevronDown
+} from 'lucide-react'; 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
-// Configuração de localidade (Data)
 const locales = { 'pt-BR': ptBR };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
 
-// Funções Auxiliares de Cor e Texto
+// --- HELPERS ---
 function getContrastColor(hexcolor) {
     if(!hexcolor) return 'black';
     hexcolor = hexcolor.replace("#", "");
@@ -38,35 +40,6 @@ function hexToRgb(hex) {
     return [r, g, b];
 };
 
-function formatTimeRange(start, end, isAllDay) {
-    if (isAllDay) return '';
-    const startHour = format(start, 'H');
-    const startMinutes = format(start, 'mm');
-    const endHour = format(end, 'H');
-    const endMinutes = format(end, 'mm');
-    const startTime = startMinutes === '00' ? `${startHour}h` : format(start, 'H:mm');
-    if ((end.getTime() - start.getTime()) <= 60 * 60 * 1000) return startTime;
-    const endTime = endMinutes === '00' ? `${endHour}h` : format(end, 'H:mm');
-    return `${startTime}-${endTime}`;
-}
-
-// Componente visual do Evento no Calendário
-const CustomEvent = ({ event }) => {
-    const textColor = getContrastColor(event.resource.color);
-    const timeLabel = formatTimeRange(event.start, event.end, event.allDay);
-    const showRoomName = event.resource.isExternal && event.resource.roomName;
-
-    return (
-        <div style={{ backgroundColor: event.resource.color, color: textColor, borderRadius: '4px', height: '100%', padding: '2px 5px', overflow: 'hidden', fontSize: '12px', lineHeight: 1.3 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px' }}>
-                <span style={{ fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{event.title}</span>
-                {timeLabel && (<span style={{ opacity: 0.9, whiteSpace: 'nowrap', fontSize: '11px' }}>{timeLabel}</span>)}
-            </div>
-            {showRoomName && (<span style={{ fontSize: '10px', opacity: 0.9, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: '500' }}>{event.resource.roomName}</span>)}
-        </div>
-    );
-};
-
 export default function PublicCalendar({ room, events: serializableEvents, isFollowingInitially, isLoggedIn }) {
   const router = useRouter();
   
@@ -75,35 +48,21 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   const [isFollowing, setIsFollowing] = useState(isFollowingInitially);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setView] = useState('month'); 
   const [googleUrl, setGoogleUrl] = useState("#");
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportRange, setExportRange] = useState({
-      start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
-      end: format(endOfMonth(new Date()), 'yyyy-MM-dd')
-  });
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copySuccess, setCopySuccess] = useState('');
-  const [includeVisualCalendars, setIncludeVisualCalendars] = useState(false);
 
-  // Efeitos e Handlers
-  const handleShare = () => {
-    const url = window.location.href;
-    navigator.clipboard.writeText(url).then(() => {
-        setCopySuccess('Link copiado!');
-        setTimeout(() => setCopySuccess(''), 2000);
-    }, () => {
-        setCopySuccess('Falha ao copiar.');
-        setTimeout(() => setCopySuccess(''), 2000);
-    });
-  };
-
+  // Responsividade
   useEffect(() => {
-    const interval = setInterval(() => { router.refresh(); }, 30000); 
-    return () => clearInterval(interval);
-  }, [router]);
+    if (window.innerWidth < 768) setView('agenda');
+    else setView('month');
+  }, []);
 
+  // Sync Google URL
   useEffect(() => {
-    if (room && room.slug && typeof window !== 'undefined') {
+    if (room?.slug && typeof window !== 'undefined') {
         const origin = window.location.origin;
         const url = `${origin}/api/ics/${room.slug}`;
         setGoogleUrl(`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(url)}`);
@@ -113,374 +72,222 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   const allEvents = useMemo(() => serializableEvents ? serializableEvents.map(event => ({ ...event, start: new Date(event.start), end: new Date(event.end) })) : [], [serializableEvents]);
 
   const filteredEvents = useMemo(() => {
-    if (!searchTerm) return allEvents;
     const lower = searchTerm.toLowerCase();
     return allEvents.filter(e => e.title.toLowerCase().includes(lower) || (e.resource.roomName && e.resource.roomName.toLowerCase().includes(lower)));
   }, [allEvents, searchTerm]);
 
+  // Eventos do Mês Atual (Para o Resumo abaixo do calendário)
+  const monthEvents = useMemo(() => {
+      return filteredEvents.filter(ev => isSameMonth(ev.start, currentDate)).sort((a, b) => a.start - b.start);
+  }, [filteredEvents, currentDate]);
+
   const handleFollow = async () => {
     const result = await followRoom(room.id);
     if(result.success) setIsFollowing(result.followed);
-    else alert(result.error);
   };
 
-  const getEventsInRange = (start, end) => {
-      const startDate = new Date(start);
-      startDate.setUTCHours(0, 0, 0, 0);
-      const endDate = new Date(end);
-      endDate.setUTCHours(23, 59, 59, 999); 
-      return filteredEvents.filter(ev => ev.start >= startDate && ev.start <= endDate).sort((a, b) => a.start - b.start);
-  };
-
-  const fitTextToWidth = (doc, text, maxWidth) => {
-    let textWidth = doc.getTextWidth(text);
-    if (textWidth <= maxWidth) return text;
-
-    // Tenta diminuir o texto até caber
-    let newText = text;
-    while (textWidth > maxWidth && newText.length > 0) {
-        newText = newText.slice(0, -1);
-        textWidth = doc.getTextWidth(newText + "...");
+  const handleShare = () => {
+    const url = window.location.href;
+    if (navigator.share) navigator.share({ title: room.name, url }).catch(() => {});
+    else {
+        navigator.clipboard.writeText(url).then(() => {
+            setCopySuccess('Copiado!');
+            setTimeout(() => setCopySuccess(''), 2000);
+        });
     }
-    return newText + "...";
   };
-  
-  // Geração de PDF (ATUALIZADA)
-  const generatePDF = (isVisual, startDateStr, endDateStr) => {
+
+  // --- LÓGICA DE EXPORTAÇÃO ---
+  const generatePDF = (isVisual) => {
     setIsGenerating(true);
     try {
-        const startDate = new Date(startDateStr + 'T00:00:00');
-        const endDate = new Date(endDateStr + 'T00:00:00');
-
-        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-
-        const drawMonth = (date) => {
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            const margin = 10;
-            
-            // Cabeçalho do Mês
-            doc.setFontSize(22); 
-            doc.setFont("helvetica", "bold"); 
-            doc.setTextColor(0,0,0); 
-            doc.text(room.name, margin, 15);
-            
-            doc.setFontSize(14); 
-            doc.text(format(date, 'MMMM yyyy', {locale: ptBR}).toUpperCase(), pageWidth - margin, 15, { align: 'right' });
-
-            // Configuração da Grade
-            const startOfMonthCal = startOfMonth(date);
-            const startCal = startOfWeek(startOfMonthCal);
-            let endCal = endOfWeek(endOfMonth(date));
-            
-            // Garante 6 linhas para manter padrão visual (42 dias)
-            const dayDiff = Math.round((endCal - startCal) / (1000 * 60 * 60 * 24));
-            if (dayDiff < 41) { 
-                endCal = new Date(startCal.getTime() + 41 * 24 * 60 * 60 * 1000); 
-            }
-
-            const daysHeader = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
-            const headerY = 22;
-            const headerHeight = 7;
-            const availableHeight = pageHeight - headerY - headerHeight - margin; // Altura disponível para a grade
-            const rowHeight = availableHeight / 6; // Altura exata de cada linha da grade
-            const colWidth = (pageWidth - (margin * 2)) / 7; 
-
-            // Desenha cabeçalho dias da semana
-            doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(50);
-            daysHeader.forEach((day, i) => {
-                doc.setFillColor(245, 245, 245); 
-                doc.setDrawColor(220);
-                doc.rect(margin + (i * colWidth), headerY, colWidth, headerHeight, 'FD'); // F = Fill, D = Draw Border
-                doc.text(day, margin + (i * colWidth) + (colWidth/2), headerY + 5, { align: 'center' });
-            });
-
-            let day = new Date(startCal.getTime());
-            
-            // Definições para os eventos
-            const eventLineHeight = 4.5; // Altura de cada linha de evento em mm
-            const dateHeaderSpace = 6; // Espaço reservado para o número do dia no topo da célula
-            const maxEventsPerCell = Math.floor((rowHeight - dateHeaderSpace) / eventLineHeight); 
-
-            for (let row = 0; row < 6; row++) {
-                for (let col = 0; col < 7; col++) {
-                    const x = margin + (col * colWidth); 
-                    const y = headerY + headerHeight + (row * rowHeight);
-                    
-                    // Desenha a célula
-                    doc.setDrawColor(200); 
-                    doc.rect(x, y, colWidth, rowHeight);
-
-                    // Número do dia
-                    const isCurrentMonth = isSameMonth(day, date);
-                    doc.setFontSize(10); 
-                    doc.setFont("helvetica", isCurrentMonth ? "bold" : "normal");
-                    doc.setTextColor(isCurrentMonth ? 0 : 180);
-                    doc.text(format(day, 'd'), x + colWidth - 2, y + 5, { align: 'right' });
-                    
-                    // Lógica dos Eventos
-                    const dayEvents = getEventsInRange(day, day);
-                    
-                    // Se tivermos eventos para desenhar
-                    if (dayEvents.length > 0) {
-                        let renderLimit = maxEventsPerCell;
-                        let showMoreLabel = false;
-                        let extraCount = 0;
-
-                        // Se houver mais eventos do que cabe, reservamos 1 linha para o "+ X mais"
-                        if (dayEvents.length > maxEventsPerCell) {
-                            renderLimit = maxEventsPerCell - 1;
-                            showMoreLabel = true;
-                            extraCount = dayEvents.length - renderLimit;
-                        }
-
-                        dayEvents.slice(0, renderLimit).forEach((ev, idx) => {
-                            const eventY = y + 8 + (idx * eventLineHeight); 
-                            
-                            // 1. Bolinha colorida
-                            const [r, g, b] = hexToRgb(ev.resource.color); 
-                            doc.setFillColor(r, g, b);
-                            doc.circle(x + 3, eventY - 1, 1.2, 'F'); 
-                            
-                            // 2. Texto do evento
-                            doc.setTextColor(0);
-                            doc.setFontSize(7); 
-                            doc.setFont("helvetica", "normal");
-                            
-                            // TRUQUE: Calculamos o texto para caber na largura sem quebrar linha
-                            // Subtraímos 6mm (bolinha + margem) da largura total
-                            const maxTextWidth = colWidth - 6; 
-                            const cleanTitle = fitTextToWidth(doc, ev.title, maxTextWidth);
-                            
-                            doc.text(cleanTitle, x + 5, eventY);
-                        });
-
-                        // Label de "+ X mais..."
-                        if (showMoreLabel) {
-                             const moreY = y + 8 + (renderLimit * eventLineHeight);
-                             doc.setFontSize(7); 
-                             doc.setFont("helvetica", "bold"); 
-                             doc.setTextColor(100);
-                             doc.text(`+ ${extraCount} eventos`, x + 5, moreY);
-                        }
-                    }
-
-                    day.setDate(day.getDate() + 1);
-                }
-            }
-        };
+        const doc = new jsPDF({ orientation: isVisual ? 'landscape' : 'portrait' });
+        doc.setFontSize(18);
+        doc.text(`Agenda ${room.name}`, 14, 20);
         
-        // Loop para gerar páginas visuais se solicitado
-        if (isVisual) {
-            let currentMonth = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-            let isFirstPage = true;
-            while (currentMonth <= endDate) {
-                if (!isFirstPage) doc.addPage('a4', 'landscape');
-                drawMonth(new Date(currentMonth));
-                isFirstPage = false;
-                currentMonth.setMonth(currentMonth.getMonth() + 1);
-            }
-        }
-        
-        // Adiciona página de lista textual ao final
-        doc.addPage('a4', 'portrait');
-        const title = `Relatório de ${format(startDate, 'dd/MM/yy')} a ${format(endDate, 'dd/MM/yy')}`;
-        const eventsToExport = getEventsInRange(startDate, endDate);
-        
-        doc.setFontSize(18); doc.setFont("helvetica", "bold"); doc.setTextColor(0,0,0);
-        doc.text(`Relatório Detalhado - ${room.name}`, 14, 20);
-        doc.setFontSize(12); doc.setTextColor(80);
-        doc.text(title, 14, 28);
-        
-        const tableData = eventsToExport.map(ev => [
-            `${format(ev.start, 'dd/MM (EEE)', {locale: ptBR})}\n${ev.allDay ? 'Dia todo' : `${format(ev.start, 'HH:mm')} - ${format(ev.end, 'HH:mm')}`}`,
-            ev.title + (ev.description ? `\n\nObs: ${ev.description}` : ''),
+        const tableData = monthEvents.map(ev => [
+            format(ev.start, 'dd/MM (EEE)', { locale: ptBR }),
+            ev.allDay ? 'Dia todo' : format(ev.start, 'HH:mm'),
+            ev.title,
             ev.resource.roomName || room.name
         ]);
-        
-        autoTable(doc, {
-            startY: 35, 
-            head: [['DATA / HORA', 'EVENTO', 'LOCAL']], 
-            body: tableData, 
-            theme: 'grid',
-            rowPageBreak: 'avoid',   // <--- ISSO impede que o evento quebre ao meio
-            margin: { bottom: 20 },  // <--- ISSO evita que a tabela cole no fim da folha
-            styles: { fontSize: 9, cellPadding: 3, valign: 'middle', lineColor: [200, 200, 200], textColor: [0,0,0] },
-            headStyles: { fillColor: [40, 40, 40], textColor: 255, fontStyle: 'bold' },
-            columnStyles: { 0: { cellWidth: 35 }, 2: { cellWidth: 35 } },
-        });
-        
-        const fileName = `Relatorio_${room.name}_${format(startDate, 'dd-MM-yy')}_a_${format(endDate, 'dd-MM-yy')}.pdf`;
-        doc.save(fileName.replace(/\s/g, '_'));
 
-    } catch (error) {
-        console.error("Erro PDF:", error);
-        alert("Erro ao gerar PDF.");
+        autoTable(doc, {
+            startY: 30,
+            head: [['Data', 'Hora', 'Evento', 'Local']],
+            body: tableData,
+            theme: 'striped',
+            headStyles: { fillColor: [37, 99, 235] }
+        });
+
+        doc.save(`Agenda_${room.name}_${format(currentDate, 'MMMM_yyyy', { locale: ptBR })}.pdf`);
     } finally {
         setIsGenerating(false);
-        setIsExportModalOpen(false);
+        setIsExportMenuOpen(false);
     }
   };
 
-  // Geração de Excel
   const generateExcel = () => {
-    setIsGenerating(true);
-    const startDate = new Date(exportRange.start + 'T00:00:00');
-    const endDate = new Date(exportRange.end + 'T00:00:00');
-    const eventsToExport = getEventsInRange(startDate, endDate);
-    const data = eventsToExport.map(ev => ({
-        'Evento': ev.title, 'Data Início': format(ev.start, 'dd/MM/yyyy'),
-        'Hora Início': ev.allDay ? 'Dia todo' : format(ev.start, 'HH:mm'),
-        'Descrição': ev.description || '', 'Local': ev.resource.roomName || room.name,
+    const data = monthEvents.map(ev => ({
+        'Data': format(ev.start, 'dd/MM/yyyy'),
+        'Hora': ev.allDay ? 'Dia todo' : format(ev.start, 'HH:mm'),
+        'Evento': ev.title,
+        'Descrição': ev.description || '',
+        'Local': ev.resource.roomName || room.name
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Agenda");
-    const fileName = `Relatorio_${room.name}_${format(startDate, 'dd-MM-yy')}_a_${format(endDate, 'dd-MM-yy')}.xlsx`;
-    XLSX.writeFile(wb, fileName.replace(/\s/g, '_'));
-    setIsGenerating(false);
-    setIsExportModalOpen(false);
+    XLSX.writeFile(wb, `Agenda_${room.name}.xlsx`);
+    setIsExportMenuOpen(false);
   };
 
-  if (!room || !serializableEvents) {
-    return <div className="text-center p-10 font-bold">Carregando agenda...</div>;
-  }
-
-  // --- RENDERIZAÇÃO PRINCIPAL ---
-  return (
-    // 'h-screen' garante altura da tela
-    // 'flex flex-col' organiza os itens verticalmente
-    // 'overflow-hidden' impede scroll na janela principal
-    <div className="h-screen bg-slate-50 flex flex-col font-sans overflow-hidden">
-      
-      {/* Cabeçalho: flex-none para manter tamanho original */}
-      <header className="flex-none p-4 md:p-6 max-w-7xl mx-auto w-full flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-4">
-            <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl flex items-center justify-center text-white font-black text-2xl md:text-3xl shadow-lg shrink-0" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div>
-            <div>
-                <h1 className="text-2xl md:text-4xl font-black text-slate-900 leading-tight">{room.name}</h1>
-                <p className="text-slate-500 font-medium text-sm">Agenda Oficial</p>
+  // --- TOOLBAR CUSTOMIZADA ---
+  const CustomToolbar = (toolbar) => {
+    return (
+        <div className="flex flex-col gap-3 mb-6 p-2 bg-white rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex items-center justify-between w-full px-2">
+                <div className="flex items-center gap-1 md:gap-2">
+                    <button onClick={() => toolbar.onNavigate('PREV')} className="p-2 hover:bg-slate-100 rounded-full transition"><ChevronLeft size={20}/></button>
+                    <button onClick={() => toolbar.onNavigate('NEXT')} className="p-2 hover:bg-slate-100 rounded-full transition"><ChevronRight size={20}/></button>
+                    <button onClick={() => toolbar.onNavigate('TODAY')} className="hidden sm:block text-xs font-bold bg-slate-100 px-3 py-2 rounded-lg">Hoje</button>
+                </div>
+                <span className="capitalize text-lg font-black text-slate-800">{format(toolbar.date, 'MMMM yyyy', { locale: ptBR })}</span>
+            </div>
+            <div className="flex p-1 bg-slate-100 rounded-xl w-full">
+                {['month', 'week', 'agenda'].map((v) => (
+                    <button key={v} onClick={() => { toolbar.onView(v); setView(v); }} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${view === v ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
+                        {v === 'month' && <Grid3x3 size={14}/>}
+                        {v === 'week' && <CalendarDays size={14}/>}
+                        {v === 'agenda' && <LayoutList size={14}/>}
+                        <span className="capitalize">{v === 'month' ? 'Mês' : v === 'week' ? 'Semana' : 'Lista'}</span>
+                    </button>
+                ))}
             </div>
         </div>
-        <div className="flex flex-wrap gap-2 items-center justify-center">
-            {isLoggedIn && (<button onClick={handleFollow} className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold transition-all text-sm whitespace-nowrap ${isFollowing ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>{isFollowing ? '✓ Seguindo' : '+ Seguir'}</button>)}
-            <button onClick={handleShare} className="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all text-sm whitespace-nowrap"><Share2 size={16} /> <span className="hidden sm:inline">{copySuccess ? copySuccess : 'Compartilhar'}</span></button>
-            <a href={googleUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 transition-all text-sm whitespace-nowrap"><CalIcon size={16} /> <span className="hidden sm:inline">Google</span></a>
-            <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all text-sm shadow-md whitespace-nowrap"><Download size={16} /> <span className="hidden sm:inline">Exportar</span></button>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-10">
+      
+      {/* NAVBAR */}
+      <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 z-40">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div>
+                <div className="leading-tight"><h1 className="text-base md:text-lg font-black text-slate-900 truncate max-w-[150px] md:max-w-md">{room.name}</h1><p className="text-[10px] text-slate-500 font-bold uppercase">Agenda Igreja</p></div>
+            </div>
+
+            <div className="flex items-center gap-2">
+                <div className="relative">
+                    <button onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-full font-bold text-xs hover:bg-slate-200 transition">
+                        Opções <ChevronDown size={14} className={`transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isExportMenuOpen && (
+                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-50 animate-in fade-in zoom-in duration-200">
+                            <button onClick={handleShare} className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl"><Share2 size={16} className="text-blue-500"/> {copySuccess || 'Compartilhar'}</button>
+                            <a href={googleUrl} target="_blank" className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl"><CalIcon size={16} className="text-red-500"/> Google Agenda</a>
+                            <div className="h-px bg-slate-100 my-1" />
+                            <button onClick={() => generatePDF(false)} className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl"><FileText size={16} className="text-orange-500"/> Baixar PDF</button>
+                            <button onClick={generateExcel} className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl"><FileSpreadsheet size={16} className="text-emerald-500"/> Baixar Excel</button>
+                        </div>
+                    )}
+                </div>
+                {isLoggedIn && <button onClick={handleFollow} className={`px-4 py-2 rounded-full font-bold text-xs transition ${isFollowing ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-600 text-white'}`}>{isFollowing ? 'Seguindo' : 'Seguir'}</button>}
+            </div>
         </div>
       </header>
 
-      {/* Barra de Busca: flex-none */}
-      <div className="flex-none px-4 md:px-6 max-w-7xl mx-auto w-full mb-4">
-        <div className="relative w-full md:w-1/3">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-slate-400" /></div>
-            <input type="text" className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-xl bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" placeholder="Filtrar eventos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
+      {/* CONTEÚDO PRINCIPAL */}
+      <main className="max-w-5xl mx-auto w-full p-4 space-y-6">
+        
+        {/* BUSCA */}
+        <div className="relative group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={20} />
+            <input type="text" placeholder="Pesquisar um evento..." className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all text-sm md:text-base" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/>
         </div>
-      </div>
 
-      {/* Área Principal (Calendário): flex-1 ocupa todo o espaço restante */}
-      <main className="flex-1 px-4 md:px-6 pb-4 md:pb-6 max-w-7xl mx-auto w-full overflow-hidden">
-        {/* Container do Calendário com h-full para usar 100% da área disponível */}
-        <div className="h-full bg-white p-2 md:p-4 rounded-2xl shadow-xl border border-slate-200">
+        {/* CALENDÁRIO */}
+        <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden h-[500px] md:h-[650px]">
             <Calendar
                 localizer={localizer}
                 events={filteredEvents}
-                defaultView="month"
-                views={['month', 'week', 'day', 'agenda']}
-                culture="pt-BR"
+                view={view}
+                onView={setView}
                 date={currentDate}
-                onNavigate={(date) => setCurrentDate(date)}
-                components={{ event: CustomEvent }}
-                onSelectEvent={(event) => setSelectedEvent(event)}
-                messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Sem eventos.", showMore: total => `+${total} ver mais` }}
-                popup={true}
-                allDayAccessor="allDay"
+                onNavigate={setCurrentDate}
+                components={{ toolbar: CustomToolbar, event: (props) => <div style={{ backgroundColor: props.event.resource.color, color: getContrastColor(props.event.resource.color) }} className="px-1.5 py-0.5 rounded text-[10px] font-bold truncate h-full">{props.event.title}</div> }}
+                onSelectEvent={setSelectedEvent}
+                culture="pt-BR"
+                messages={{ noEventsInRange: "Sem eventos nesta data." }}
             />
         </div>
+
+        {/* VISÃO GERAL / RESUMO (O QUE VOCÊ PEDIU) */}
+        <section className="animate-in slide-in-from-bottom duration-700">
+            <div className="flex items-center justify-between mb-4 px-2">
+                <h2 className="text-xl font-black text-slate-800">Resumo de {format(currentDate, 'MMMM', {locale: ptBR})}</h2>
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{monthEvents.length} eventos</span>
+            </div>
+
+            {monthEvents.length > 0 ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                    {monthEvents.map((ev, idx) => (
+                        <div key={idx} onClick={() => setSelectedEvent(ev)} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-pointer group flex items-center gap-4">
+                            <div className="flex flex-col items-center justify-center min-w-[50px] h-[50px] rounded-xl bg-slate-50 text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                                <span className="text-lg font-black leading-none">{format(ev.start, 'dd')}</span>
+                                <span className="text-[10px] font-bold uppercase">{format(ev.start, 'EEE', {locale: ptBR})}</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h4 className="font-bold text-slate-900 truncate group-hover:text-blue-600">{ev.title}</h4>
+                                <div className="flex items-center gap-3 mt-1 text-slate-500 text-xs font-medium">
+                                    <span className="flex items-center gap-1"><Clock size={12}/> {ev.allDay ? 'Dia todo' : format(ev.start, 'HH:mm')}</span>
+                                    {ev.resource.roomName && <span className="flex items-center gap-1"><MapPin size={12}/> {ev.resource.roomName}</span>}
+                                </div>
+                            </div>
+                            <ChevronRight size={18} className="text-slate-300 group-hover:text-blue-400 transition-colors" />
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-200 text-center">
+                    <p className="text-slate-400 font-bold">Nenhum evento programado para este mês.</p>
+                </div>
+            )}
+        </section>
       </main>
 
-      {/* Modal de Detalhes do Evento */}
+      {/* MODAL DETALHES */}
       {selectedEvent && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in border-t-8" style={{borderColor: selectedEvent.resource.color}}>
-                <div className="p-6">
-                    <div className="flex justify-between items-start mb-4">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}>
+            <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="h-2 w-full" style={{backgroundColor: selectedEvent.resource.color}}></div>
+                <div className="p-8">
+                    <div className="flex justify-between items-start mb-6">
                         <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedEvent.title}</h2>
-                        <button onClick={() => setSelectedEvent(null)} className="text-slate-400 hover:text-slate-700 bg-slate-100 p-1 rounded-full"><X size={20}/></button>
+                        <button onClick={() => setSelectedEvent(null)} className="text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full transition"><X size={20}/></button>
                     </div>
-                    <div className="space-y-4">
-                        <div className="flex items-start gap-3 text-slate-600">
-                            <Clock className="shrink-0 mt-0.5" size={20}/>
+                    <div className="space-y-6">
+                        <div className="flex items-start gap-4 text-slate-600 bg-slate-50 p-4 rounded-2xl">
+                            <Clock className="text-blue-500 mt-1" size={24}/>
                             <div>
-                                <p className="font-bold text-slate-800 capitalize">{format(selectedEvent.start, "EEEE, d 'de' MMMM", {locale: ptBR})}</p>
-                                {selectedEvent.allDay ? (<p className="text-sm font-medium">O dia todo</p>) : (<p className="text-sm">{format(selectedEvent.start, 'HH:mm')} até {format(selectedEvent.end, 'HH:mm')}</p>)}
+                                <p className="font-black text-slate-800 capitalize">{format(selectedEvent.start, "EEEE, d 'de' MMMM", {locale: ptBR})}</p>
+                                <p className="text-sm font-bold text-slate-500">{selectedEvent.allDay ? 'O dia todo' : `${format(selectedEvent.start, 'HH:mm')} até ${format(selectedEvent.end, 'HH:mm')}`}</p>
                             </div>
                         </div>
-                        {selectedEvent.description && (<div className="flex items-start gap-3 text-slate-600"><AlignLeft className="shrink-0 mt-0.5" size={20}/><p className="text-sm whitespace-pre-wrap leading-relaxed">{selectedEvent.description}</p></div>)}
-                        <div className="flex items-center gap-3 text-slate-600">
-                            <div className="w-5 h-5 rounded-full shrink-0" style={{backgroundColor: selectedEvent.resource.color}}></div>
-                            <span className="text-sm font-bold">{selectedEvent.resource.roomName || room.name}</span>
-                        </div>
-                    </div>
-                    <div className="mt-8 pt-4 border-t flex justify-end">
-                        <button onClick={() => setSelectedEvent(null)} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition">Fechar</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* Modal de Exportação */}
-      {isExportModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-in fade-in zoom-in">
-                <div className="p-6 border-b">
-                    <h2 className="text-xl font-black text-slate-900">Exportar Relatório</h2>
-                    <p className="text-sm text-slate-500">Exporte o calendário em diferentes formatos.</p>
-                </div>
-                <div className="p-6 space-y-6">
-                    <div className="border-b pb-6">
-                        <h3 className="text-md font-bold text-slate-800 mb-2">Exportar Calendário do Mês</h3>
-                        <p className="text-xs text-slate-500 mb-4">Gera um PDF com o layout visual do mês atual e uma lista de eventos ao final.</p>
-                        <button 
-                            onClick={() => {
-                                const start = format(startOfMonth(currentDate), 'yyyy-MM-dd');
-                                const end = format(endOfMonth(currentDate), 'yyyy-MM-dd');
-                                generatePDF(true, start, end);
-                            }} 
-                            disabled={isGenerating} 
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-700 transition disabled:opacity-50"
-                        >
-                            <CalIcon size={16} /> Gerar PDF de {format(currentDate, 'MMMM', {locale: ptBR})}
-                        </button>
-                    </div>
-                    <div>
-                        <h3 className="text-md font-bold text-slate-800 mb-2">Exportar Período Personalizado</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-xs font-bold text-slate-500">Data de Início</label>
-                                <input type="date" value={exportRange.start} onChange={e => setExportRange({...exportRange, start: e.target.value})} className="w-full p-2 border rounded-lg mt-1"/>
+                        {selectedEvent.description && (
+                            <div className="flex items-start gap-4 text-slate-600 px-2">
+                                <AlignLeft className="text-slate-400 mt-1" size={24}/>
+                                <p className="text-sm leading-relaxed">{selectedEvent.description}</p>
                             </div>
-                            <div>
-                                <label className="text-xs font-bold text-slate-500">Data Final</label>
-                                <input type="date" value={exportRange.end} onChange={e => setExportRange({...exportRange, end: e.target.value})} className="w-full p-2 border rounded-lg mt-1"/>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-between pt-4">
-                            <button onClick={() => setExportRange({start: format(startOfYear(currentDate), 'yyyy-MM-dd'), end: format(endOfYear(currentDate), 'yyyy-MM-dd')})} className="text-xs font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-full">Ano Inteiro</button>
-                            <label className="flex items-center gap-2 cursor-pointer text-sm font-medium">
-                                <input type="checkbox" checked={includeVisualCalendars} onChange={(e) => setIncludeVisualCalendars(e.target.checked)} />
-                                Incluir calendários visuais
-                            </label>
-                        </div>
-                        <div className="flex flex-wrap gap-2 justify-end mt-4">
-                            <button onClick={() => generateExcel()} disabled={isGenerating} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition disabled:opacity-50 text-sm"><FileSpreadsheet size={16} /> Excel</button>
-                            <button onClick={() => generatePDF(includeVisualCalendars, exportRange.start, exportRange.end)} disabled={isGenerating} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 transition disabled:opacity-50 text-sm"><Download size={16} /> Gerar PDF</button>
+                        )}
+                        <div className="flex items-center gap-4 text-slate-600 px-2 pt-4 border-t border-slate-100">
+                            <MapPin className="text-slate-400" size={24}/>
+                            <span className="text-sm font-black text-slate-700">{selectedEvent.resource.roomName || room.name}</span>
                         </div>
                     </div>
-                </div>
-                <div className="p-4 bg-slate-50 rounded-b-2xl flex justify-end">
-                    <button onClick={() => setIsExportModalOpen(false)} className="font-bold text-slate-500">Fechar</button>
+                    <button onClick={() => setSelectedEvent(null)} className="w-full mt-8 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition shadow-lg">Fechar</button>
                 </div>
             </div>
         </div>

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql" // MUDOU DE sqlite PARA postgresql
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -14,13 +14,19 @@ model Room {
   type       String
   color      String     @default("#3b82f6")
   inviteCode String     @unique @default(cuid())
+  group      String?
+
   parentId   String?
   parent     Room?      @relation("Hierarchy", fields: [parentId], references: [id])
   children   Room[]     @relation("Hierarchy")
+
   members    Member[]
   followers  Follower[]
   events     Event[]
   categories Category[]
+
+  broadcastsFrom EventBroadcast[] @relation("FromRoom")
+  broadcastsTo   EventBroadcast[] @relation("ToRoom")
 }
 
 model Member {
@@ -28,7 +34,9 @@ model Member {
   userId String
   roomId String
   role   String
+
   room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
   @@unique([userId, roomId])
 }
 
@@ -37,47 +45,72 @@ model Follower {
   userId    String
   roomId    String
   icalToken String @unique @default(cuid())
+
   room      Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
   @@unique([userId, roomId])
 }
 
 model Event {
-  id          String    @id @default(cuid())
-  title       String
-  description String?
-  start       DateTime
-  end         DateTime
-  isRecurring Boolean   @default(false)
-  rrule       String?
-  cascade     Boolean   @default(false)
-  roomId      String
-  room        Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  categoryId  String?
-  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
 
-  // AQUI ESTAVA FALTANDO A RELAÇÃO
-  exceptions EventException[]
-  
-  allDay      Boolean  @default(false) 
+  start         DateTime
+  end           DateTime
+  allDay        Boolean  @default(false)
 
+  isRecurring   Boolean  @default(false)
+  rrule         String?
+
+  cascade       Boolean  @default(false)
+
+  roomId        String
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  exceptions    EventException[]
+  broadcasts    EventBroadcast[]
+}
+
+model EventBroadcast {
+  id          String   @id @default(cuid())
+  eventId     String
+  fromRoomId  String
+  toRoomId    String
+
+  approvedAt  DateTime @default(now())
+
+  event       Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  fromRoom    Room  @relation("FromRoom", fields: [fromRoomId], references: [id])
+  toRoom      Room  @relation("ToRoom", fields: [toRoomId], references: [id])
+
+  @@unique([eventId, toRoomId])
 }
 
 model Category {
   id     String  @id @default(cuid())
   name   String
   color  String
+
   roomId String
   room   Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
   events Event[]
+
   @@unique([name, roomId])
 }
 
-// A TABELA DE EXCEÇÕES QUE NÃO ESTAVA LIGADA AO EVENTO
 model EventException {
   id              String   @id @default(cuid())
   originalEventId String
   exceptionDate   DateTime
-  
+
   originalEvent   Event    @relation(fields: [originalEventId], references: [id], onDelete: Cascade)
 
   @@unique([originalEventId, exceptionDate])
