@@ -2,57 +2,63 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
-import { 
-    format, parse, startOfWeek, getDay, getDate, set, endOfWeek, isWithinInterval, 
-    startOfMonth, endOfMonth, startOfDay, endOfDay 
-} from 'date-fns';
+import { format, parse, startOfWeek, getDay, getDate, set } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { 
     createEvent, updateEvent, deleteEvent, createCategory, deleteCategory, updateRoom, deleteRoom, setChildRoomGroup, rebroadcastEvent, getChildRoomEvents 
 } from '@/app/actions';
 import { 
-    Trash2, Plus, AlertTriangle, ArrowLeft, ExternalLink, Check, Repeat, Layers, Clock, CalendarDays, Settings, ShieldAlert, X, Eye, Lock, Target, Tag, BarChart3, Users, Send, Loader2, PanelLeftClose, PanelLeftOpen, Shield, MapPin, Share2, FileText
+    Trash2, Plus, AlertTriangle, ArrowLeft, ExternalLink, Check, Repeat, Layers, Clock, CalendarDays, Settings, ShieldAlert, X, Eye, Lock, Target, Tag, Users, Send, Loader2, PanelLeftClose, PanelLeftOpen, Shield, MapPin, Share2, FileText
 } from 'lucide-react';
 
-// --- CONFIGURAÇÕES ---
 const locales = { 'pt-BR': ptBR };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
 
-// --- HELPERS ---
+// --- HELPERS VISUAIS ---
 function getContrastColor(hexcolor) { if (!hexcolor) return 'black'; hexcolor = hexcolor.replace("#", ""); var r = parseInt(hexcolor.substr(0, 2), 16); var g = parseInt(hexcolor.substr(2, 2), 16); var b = parseInt(hexcolor.substr(4, 2), 16); var yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000; return (yiq >= 128) ? 'black' : 'white'; }
+
+// --- HELPERS DE RECORRÊNCIA ---
 function generateRRule(start, options) { if (!options.freq || options.freq === 'NONE') return ''; let parts = [`FREQ=${options.freq}`]; if (options.interval > 1) parts.push(`INTERVAL=${options.interval}`); if (options.freq === 'WEEKLY' && options.byDay.length > 0) parts.push(`BYDAY=${options.byDay.join(',')}`); if (options.freq === 'MONTHLY') { if (options.monthlyType === 'day') parts.push(`BYMONTHDAY=${getDate(start)}`); else if (options.monthlyType === 'pos') { const weekDay = format(start, 'iiii').toUpperCase().substring(0, 2); const day = getDate(start); const pos = Math.ceil(day / 7); parts.push(`BYDAY=${pos}${weekDay}`); } } if (options.endType === 'date' && options.until) { const untilStr = options.until + 'T23:59:59Z'; parts.push(`UNTIL=${untilStr.replace(/[-:]/g, '')}`); } else if (options.endType === 'count' && options.count) parts.push(`COUNT=${options.count}`); return parts.join(';'); }
 function parseRRule(rruleString = '') { if (!rruleString) return { freq: 'NONE', interval: 1, byDay: [], monthlyType: 'day', endType: 'never', until: '', count: 13 }; const options = { freq: 'NONE', interval: 1, byDay: [], monthlyType: 'day', endType: 'never', until: '', count: 13 }; const parts = rruleString.split(';'); parts.forEach(part => { const [key, value] = part.split('='); switch (key) { case 'FREQ': options.freq = value; break; case 'INTERVAL': options.interval = parseInt(value, 10); break; case 'BYDAY': options.byDay = value.split(','); break; case 'BYMONTHDAY': options.monthlyType = 'day'; break; case 'UNTIL': options.endType = 'date'; if (value && value.length >= 8) { const y = value.substring(0, 4); const m = value.substring(4, 6); const d = value.substring(6, 8); options.until = `${y}-${m}-${d}`; } break; case 'COUNT': options.endType = 'count'; options.count = parseInt(value, 10); break; } }); if (options.freq === 'MONTHLY' && options.byDay.length > 0 && !rruleString.includes('BYMONTHDAY')) { options.monthlyType = 'pos'; } return options; }
-const processEvents = (eventsData) => { return eventsData.map(e => ({ ...e, start: new Date(e.start), end: new Date(e.end) })); };
+
+// --- CORREÇÃO DO PROBLEMA DA UCADEG ---
+// Esta função substitui a antiga processEvents. Ela "conserta" datas inválidas.
+const safeProcessEvents = (eventsData) => {
+    if (!eventsData) return [];
+    return eventsData.map(e => {
+        const start = new Date(e.start);
+        let end = new Date(e.end);
+        
+        // SE A DATA FINAL FOR INVÁLIDA OU MENOR QUE A INICIAL, CORRIGE PARA +1 HORA
+        // Isso impede que o evento fique "invisível" no calendário
+        if (isNaN(end.getTime()) || end <= start) {
+            end = new Date(start);
+            end.setHours(end.getHours() + 1);
+        }
+        
+        return { ...e, start, end };
+    });
+};
 
 export default function AdminCalendar({ room, initialEvents, categories, allParents, childrenRooms }) {
     const router = useRouter();
     
-    // ESTADOS GERAIS
+    // ATUALIZAÇÃO AUTOMÁTICA
+    useEffect(() => {
+        const handleFocus = () => router.refresh();
+        window.addEventListener('focus', handleFocus);
+        return () => window.removeEventListener('focus', handleFocus);
+    }, [router]);
+
     const [view, setView] = useState('month');
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isSidebarOpen, setIsSidebarOpen] = useState(true); 
 
-    // Ajuste responsivo inicial
-    useEffect(() => {
-        const handleResize = () => {
-            if (window.innerWidth < 768) {
-                setIsSidebarOpen(false);
-                setView('agenda'); 
-            } else {
-                setIsSidebarOpen(true);
-                setView('month');
-            }
-        };
-        handleResize(); 
-    }, []);
-
-    // --- LÓGICA DE DADOS ---
+    // Inicialização dos eventos usando a função BLINDADA
     const initialFetchedMap = useMemo(() => {
         const map = {};
-        processEvents(initialEvents).forEach(ev => {
+        safeProcessEvents(initialEvents).forEach(ev => {
             const rId = ev.roomId;
             if (!map[rId]) map[rId] = [];
             map[rId].push(ev);
@@ -69,8 +75,6 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
     const [allFetchedEvents, setAllFetchedEvents] = useState(initialFetchedMap);
     const [visibleRoomIds, setVisibleRoomIds] = useState(initialVisibleIds);
     const [isLoadingChildren, setIsLoadingChildren] = useState(new Set());
-
-    // ESTADOS DE UI
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -92,7 +96,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
     const availableGroups = useMemo(() => { if (!childrenRooms) return []; const groups = childrenRooms.map(c => c.group).filter(Boolean); return [...new Set(groups)]; }, [childrenRooms]);
     const filteredParents = useMemo(() => { if (!parentSearchTerm) return allParents; return allParents.filter(p => p.name.toLowerCase().includes(parentSearchTerm.toLowerCase())); }, [allParents, parentSearchTerm]);
 
-    // --- LÓGICA DE EVENTOS E VISUALIZAÇÃO ---
+    // Lógica de Visualização
     const displayedEvents = useMemo(() => {
         let eventsToShow = [];
         visibleRoomIds.forEach(roomId => {
@@ -114,7 +118,8 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                 if (roomId !== room.id) {
                     const result = await getChildRoomEvents(roomId, room.id);
                     if (result.success) {
-                        setAllFetchedEvents(prev => ({ ...prev, [roomId]: processEvents(result.events) }));
+                        // USA A FUNÇÃO BLINDADA AQUI TAMBÉM
+                        setAllFetchedEvents(prev => ({ ...prev, [roomId]: safeProcessEvents(result.events) }));
                     } else {
                         alert(result.error);
                         newVisibleIds.delete(roomId);
@@ -152,6 +157,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
         });
     };
 
+    // Componente Visual do Evento
     const EventComponent = ({ event }) => {
         const hasConflict = checkConflict(event.start, event.end, event.id);
         const isExternal = event.roomId !== room.id;
@@ -161,7 +167,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
         return (
             <div className={`text-xs p-1 h-full overflow-hidden leading-tight flex flex-col justify-start relative transition-all 
                 ${isExternal ? 'opacity-90' : ''} 
-                ${hasConflict ? 'ring-2 ring-red-600 animate-pulse z-20 shadow-lg' : ''} 
+                ${hasConflict ? 'ring-2 ring-red-500 animate-pulse z-20 shadow-lg' : ''} 
                 `} 
                 style={{ backgroundColor: eventColor, color: textColor, borderRadius: '4px' }}
             >
@@ -175,95 +181,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
         );
     };
 
-    // --- NOVAS FUNCIONALIDADES: WHATSAPP E PDF (CORRIGIDAS) ---
-
-    const generateWhatsAppText = () => {
-        const weekStart = startOfWeek(currentDate, { locale: ptBR });
-        const weekEnd = endOfWeek(currentDate, { locale: ptBR });
-        
-        const weeklyEvents = displayedEvents.filter(ev => 
-            isWithinInterval(ev.start, { start: weekStart, end: weekEnd })
-        ).sort((a, b) => a.start - b.start);
-
-        if (weeklyEvents.length === 0) {
-            alert("Nenhum evento visível nesta semana.");
-            return;
-        }
-
-        let text = `*📅 AGENDA DA SEMANA - ${room.name.toUpperCase()}*\n`;
-        text += `_Semana de ${format(weekStart, 'dd/MM')} a ${format(weekEnd, 'dd/MM')}_\n\n`;
-        
-        let currentDay = '';
-        weeklyEvents.forEach(ev => {
-            const dayName = format(ev.start, "EEEE (dd/MM)", { locale: ptBR }).toUpperCase();
-            if (dayName !== currentDay) {
-                text += `\n*${dayName}*\n`;
-                currentDay = dayName;
-            }
-            const time = ev.allDay ? 'Dia todo' : format(ev.start, "HH:mm");
-            const location = ev.roomId !== room.id ? ` _(${ev.room?.name || 'Externo'})_` : '';
-            text += `• ${time} - ${ev.title}${location}\n`;
-        });
-
-        text += `\n_Gerado via AgendaIgreja_`;
-
-        navigator.clipboard.writeText(text).then(() => {
-            setCopySuccess('Copiado!');
-            setTimeout(() => setCopySuccess(''), 2000);
-        });
-    };
-
-    const generatePDFReport = () => {
-        const doc = new jsPDF();
-        
-        let startRange, endRange, titlePeriod;
-
-        if (view === 'month') {
-            startRange = startOfMonth(currentDate);
-            endRange = endOfMonth(currentDate);
-            titlePeriod = format(currentDate, "MMMM 'de' yyyy", { locale: ptBR });
-        } else if (view === 'week') {
-            startRange = startOfWeek(currentDate, { locale: ptBR });
-            endRange = endOfWeek(currentDate, { locale: ptBR });
-            titlePeriod = `Semana de ${format(startRange, 'dd/MM')} a ${format(endRange, 'dd/MM')}`;
-        } else {
-            startRange = startOfDay(currentDate);
-            endRange = endOfDay(currentDate);
-            titlePeriod = format(currentDate, "dd 'de' MMMM", { locale: ptBR });
-        }
-
-        doc.setFontSize(18);
-        doc.text(`Relatório de Agenda - ${room.name}`, 14, 20);
-        doc.setFontSize(10);
-        doc.setTextColor(100);
-        doc.text(`Período: ${titlePeriod.toUpperCase()}`, 14, 26);
-
-        const eventsToPrint = displayedEvents.filter(ev => {
-            return (ev.start >= startRange && ev.start <= endRange) || 
-                   (ev.end >= startRange && ev.end <= endRange) ||
-                   (ev.start <= startRange && ev.end >= endRange);
-        }).sort((a, b) => a.start - b.start);
-
-        const tableData = eventsToPrint.map(ev => [
-            format(ev.start, 'dd/MM (EEE)', { locale: ptBR }),
-            ev.allDay ? 'Dia todo' : `${format(ev.start, 'HH:mm')} - ${format(ev.end, 'HH:mm')}`,
-            ev.title,
-            ev.roomId !== room.id ? (ev.room?.name || 'Externo') : room.name
-        ]);
-
-        autoTable(doc, {
-            startY: 32,
-            head: [['Data', 'Horário', 'Evento', 'Origem']],
-            body: tableData,
-            theme: 'striped',
-            headStyles: { fillColor: [41, 128, 185] },
-            styles: { fontSize: 9 },
-        });
-
-        doc.save(`Agenda_${room.name}_${format(currentDate, 'yyyy-MM')}.pdf`);
-    };
-
-    // --- HANDLERS (CRUD) ---
+    // Handlers
     const prepareForm = (evt = null, slot = null) => { 
         setShowNewCategory(false); 
         if (evt) { 
@@ -426,7 +344,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
             {/* ÁREA PRINCIPAL */}
             <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-white">
                 
-                {/* CABEÇALHO */}
+                {/* CABEÇALHO COMPLETO */}
                 <header className="flex-none bg-white border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between z-20 gap-4">
                     <div className="flex items-center gap-4 flex-1 min-w-0">
                         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-500 hover:text-slate-800 p-2 rounded-lg hover:bg-slate-100 transition-colors" title="Menu">
@@ -446,15 +364,6 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
-                        <button onClick={generateWhatsAppText} className="flex items-center gap-2 bg-emerald-50 text-emerald-600 font-bold text-sm px-3 py-2 rounded-lg hover:bg-emerald-100 transition" title="Copiar Agenda Semanal">
-                            <Share2 size={18} /> <span className="hidden lg:inline">{copySuccess || 'WhatsApp'}</span>
-                        </button>
-                        <button onClick={generatePDFReport} className="hidden md:flex items-center gap-2 bg-slate-100 text-slate-600 font-bold text-sm px-3 py-2 rounded-lg hover:bg-slate-200 transition" title="Baixar PDF">
-                            <FileText size={18} /> PDF
-                        </button>
-                        
-                        <div className="h-6 w-px bg-slate-200 hidden md:block mx-1"></div>
-
                         {/* Botão Ver Agenda (Pública) */}
                         <a 
                             href={`/${room.slug}`} 
@@ -487,7 +396,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                             onSelectSlot={(slot) => prepareForm(null, slot)}
                             onSelectEvent={(evt) => prepareForm(evt)}
                             components={{ event: EventComponent }}
-                            messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Nenhum evento visível.", showMore: total => `+${total}` }}
+                            messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Nenhum evento visível.", showMore: total => `+${total} ver mais` }}
                             popup={true}
                             style={{ height: '100%' }}
                         />
@@ -495,7 +404,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                 </main>
             </div>
             
-            {/* --- MODAIS (Config, Novo Evento, etc) --- */}
+            {/* --- MODAIS --- */}
             {isSettingsModalOpen && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in max-h-[90vh] overflow-y-auto custom-scrollbar">

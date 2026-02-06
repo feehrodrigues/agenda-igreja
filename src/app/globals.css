@@ -1,246 +1,156 @@
-/* PASSO 1: Importar a fonte e o Tailwind */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
-/* PASSO 2: Diretivas do Tailwind */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* PASSO 3: Estilo base */
 @layer base {
   body {
     font-family: 'Inter', sans-serif;
-    background-color: #f8fafc;
-    color: #0f172a;
+    background-color: #f8fafc; /* slate-50 */
+    color: #0f172a; /* slate-900 */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* 
-==============================================
-ESTILO "COMPACTO & PREMIUM"
-Ajuste fino para caber eventos + "ver mais"
-==============================================
-*/
+/* ==============================================
+   ESTILO FINAL: CLEAN, ELEGANTE E COMPATÍVEL
+============================================== */
 
-/* --- GERAL --- */
 .rbc-calendar {
   height: 100% !important;
   width: 100% !important;
-  font-family: 'Inter', sans-serif;
+  color: #334155; /* slate-700 */
 }
 
-/* --- TOOLBAR --- */
+/* --- TOOLBAR GERAL --- */
 .rbc-toolbar {
-  margin-bottom: 0.5rem !important; /* Margem reduzida */
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
-  padding-bottom: 0.5rem;
+  margin-bottom: 1rem !important;
 }
-.rbc-toolbar-label {
-  font-size: 1.1rem !important;
+.rbc-toolbar .rbc-toolbar-label {
+  font-size: 1.25rem !important;
   font-weight: 800 !important;
-  color: #1e293b;
-  text-transform: capitalize;
+  color: #1e293b; /* slate-800 */
+  flex-grow: 0 !important;
 }
-.rbc-btn-group button {
-  border: 1px solid #cbd5e1 !important;
-  color: #475569 !important;
+.rbc-toolbar .rbc-btn-group button {
+  padding: 0.5rem 1rem !important;
+  border: 1px solid #e2e8f0 !important; /* slate-200 */
+  border-radius: 0.5rem !important;
   font-weight: 600 !important;
-  padding: 0.25rem 0.5rem !important; /* Botões mais compactos */
-  font-size: 0.8rem !important;
-  border-radius: 0 !important;
+  color: #475569; /* slate-600 */
+  transition: all 0.2s;
 }
-.rbc-btn-group button:first-child { border-top-left-radius: 0.5rem !important; border-bottom-left-radius: 0.5rem !important; }
-.rbc-btn-group button:last-child { border-top-right-radius: 0.5rem !important; border-bottom-right-radius: 0.5rem !important; }
-.rbc-btn-group button.rbc-active {
+.rbc-toolbar .rbc-btn-group button:hover {
+  background-color: #f1f5f9; /* slate-100 */
+  border-color: #cbd5e1; /* slate-300 */
+}
+.rbc-toolbar .rbc-btn-group button.rbc-active {
   background-color: #2563eb !important;
   color: white !important;
   border-color: #2563eb !important;
+  box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.25);
 }
 
-/* --- CABEÇALHO (SEG, TER...) --- */
+/* --- CABEÇALHO (Dias da Semana) --- */
 .rbc-header {
-  padding: 4px 0 !important;
-  font-size: 0.65rem !important;
+  padding: 0.75rem 0.25rem !important;
+  font-size: 0.7rem !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
-  color: #64748b !important;
-  border-bottom: 1px solid #e2e8f0 !important;
-  background-color: #f8fafc;
+  color: #64748b !important; /* slate-500 */
+  text-align: center !important;
+  border: none !important;
 }
 
-/* --- ESTRUTURA DO MÊS --- */
+/* --- VISÃO DE MÊS --- */
 .rbc-month-view {
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 0.75rem !important;
+  border: 1px solid #e2e8f0 !important; /* slate-200 */
+  border-radius: 1rem !important;
   background-color: white;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
 }
-
 .rbc-month-row {
-  flex: 1 0 0 !important; /* Distribuição igual */
-  min-height: 0 !important; /* Permite encolher */
-  overflow: hidden; /* Corta o que passar, mas vamos ajustar o conteúdo para não passar */
+  flex-basis: 0;
+  min-height: 120px !important;
+}
+.rbc-day-bg + .rbc-day-bg {
+  border-left: 1px solid #f1f5f9; /* slate-100 */
+}
+.rbc-month-row + .rbc-month-row {
+  border-top: 1px solid #f1f5f9; /* slate-100 */
 }
 
-/* --- DATA (NÚMERO DO DIA) --- */
+/* --- CÉLULA DO DIA --- */
 .rbc-date-cell {
-  padding: 2px 4px !important; /* Padding mínimo */
-  text-align: right;
+  padding: 0.5rem !important;
 }
-
 .rbc-date-cell > a {
-  font-size: 0.7rem !important;
+  font-size: 0.8rem !important;
   font-weight: 600;
-  color: #64748b;
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  line-height: 20px;
-  text-align: center;
-  border-radius: 50%;
+  color: #475569; /* slate-600 */
 }
-
-.rbc-now > a {
+.rbc-day-bg.rbc-today {
+  background-color: #eff6ff !important; /* blue-50 */
+}
+.rbc-date-cell.rbc-now a {
   background-color: #2563eb;
   color: white !important;
+  font-weight: 700;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  text-align: center;
+  display: inline-block;
 }
 
-/* 
-  --- EVENTOS (O SEGREDO DO ENCAIXE) --- 
-  Altura fixa pequena e margens mínimas.
-*/
-.rbc-event {
+/* --- EVENTOS (RESOLVE O PROBLEMA DE SUMIR) --- */
+.rbc-event, .rbc-day-slot .rbc-event {
   background-color: transparent !important;
   border: none !important;
   padding: 0 !important;
-  /* MUDANÇA AQUI: margin-bottom de 2px para 3px para dar respiro */
-  margin: 1px 4px 3px 4px !important; 
-  min-height: 25px !important; 
-  border-radius: 4px !important;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  transition: transform 0.1s, opacity 0.1s;
+  outline: none !important;
 }
-
-.rbc-event:focus { outline: none !important; }
-
-/* Texto dentro do evento */
-.rbc-event-content {
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  line-height: 18px !important; /* Centraliza o texto na altura de 18px */
-  padding: 0 4px !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+.rbc-event:focus {
+  outline: none !important;
 }
 
 /* --- LINK "+ VER MAIS" --- */
 .rbc-show-more {
-  background-color: rgba(255, 255, 255, 0.95) !important;
-  font-size: 9px !important; /* Fonte bem pequena */
+  font-size: 0.7rem !important;
   font-weight: 700 !important;
-  color: #475569 !important;
-  margin: 0 2px !important; /* Sem margem vertical */
-  padding: 0 4px !important;
-  border-radius: 2px;
-  display: block !important;
+  color: #1d4ed8 !important; /* blue-700 */
   text-decoration: none !important;
-  height: 14px !important; /* Altura forçada */
-  line-height: 14px !important;
-  z-index: 50; /* Garante que fique por cima */
-  position: relative;
+  margin-top: 0.25rem;
+  margin-left: 0.5rem;
+  transition: all 0.2s;
 }
-
 .rbc-show-more:hover {
-  color: #2563eb !important;
-  background-color: #eff6ff !important;
+  color: #1e40af !important; /* blue-800 */
 }
 
-/* --- OUTRAS VISÕES --- */
-.rbc-time-view {
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 0.75rem;
-  overflow: hidden;
-  background-color: white;
+/* --- VISÃO DE LISTA (AGENDA) --- */
+.rbc-agenda-view table.rbc-agenda-table, .rbc-agenda-view .rbc-agenda-content {
+  border: none !important;
 }
-.rbc-time-header { flex: 0 0 auto !important; }
-.rbc-time-content { flex: 1 1 0% !important; border-top: 1px solid #e2e8f0; overflow-y: auto !important; }
-.rbc-day-slot .rbc-event {
-  border: 1px solid white !important;
-  left: 2px !important; right: 2px !important;
-}
-.rbc-agenda-view { border: 1px solid #e2e8f0 !important; border-radius: 0.75rem; display: flex; flex-direction: column; background-color: white; }
-.rbc-agenda-table { border: none !important; }
-.rbc-agenda-content { flex: 1; overflow-y: auto; border-top: 1px solid #e2e8f0; }
-
-/* Impressão */
-@media print {
-  @page { size: A4 landscape; margin: 0.5cm; }
-  .rbc-calendar { height: auto !important; display: block !important; }
-  .rbc-month-view { display: block !important; height: auto !important; }
-  .rbc-month-row { height: 100px !important; overflow: visible !important; }
-  .rbc-event { border: 1px solid #000 !important; print-color-adjust: exact !important; }
-}
-
-
-/* --- ESTILO DA AGENDA PÚBLICA (MODERNO) --- */
-
-/* Remove as linhas de grade chatas na visão de lista */
-.rbc-agenda-view table.rbc-agenda-table {
-    border: none !important;
+.rbc-agenda-view .rbc-agenda-content {
+  border-top: 1px solid #e2e8f0;
 }
 .rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
-    border: none !important;
-    padding: 12px 8px !important;
-    vertical-align: middle !important;
+  border: none !important;
+  padding: 0.75rem 0.5rem !important;
 }
 .rbc-agenda-view table.rbc-agenda-table thead > tr > th {
-    border-bottom: 1px solid #e2e8f0 !important;
-    color: #64748b;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    padding: 10px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
 }
-
-/* Estilo da data na lista */
-.rbc-agenda-date-cell {
-    font-weight: 700 !important;
-    color: #334155 !important;
-    font-size: 0.9rem !important;
-}
-
-/* Estilo do tempo na lista */
-.rbc-agenda-time-cell {
-    font-size: 0.8rem !important;
-    color: #64748b !important;
-    text-transform: lowercase;
-    white-space: nowrap !important;
-}
-
-/* Hover na linha */
 .rbc-agenda-view table.rbc-agenda-table tbody > tr:hover {
-    background-color: #f8fafc !important;
-    cursor: pointer;
+  background-color: #f8fafc !important;
 }
 
-/* Remove a barra de rolagem feia se possível */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 20px;
-}
+/* Scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
