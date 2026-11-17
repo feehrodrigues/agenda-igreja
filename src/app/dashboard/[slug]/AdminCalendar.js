@@ -161,7 +161,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
     const EventComponent = ({ event }) => {
         const hasConflict = checkConflict(event.start, event.end, event.id);
         const isExternal = event.roomId !== room.id;
-        const eventColor = isExternal ? (event.room?.color || '#999') : (event.resource?.color || event.category?.color || room.color);
+        const eventColor = isExternal ? (event.resource?.color || event.category?.color || event.room?.color || '#999') : (event.resource?.color || event.category?.color || room.color);
         const textColor = getContrastColor(eventColor);
         
         return (

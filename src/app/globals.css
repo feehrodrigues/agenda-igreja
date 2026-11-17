@@ -154,3 +154,78 @@
 .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+
+/* ==============================================
+   IMPRESSÃO / PDF DO PROGRAMA
+============================================== */
+.so-impressao {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .so-impressao {
+    display: block !important;
+  }
+
+  /* Um mês por página, sem cortar o bloco no meio. */
+  .programa-grade .mes {
+    break-inside: avoid;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+  }
+
+  .programa-grade .quebra-antes {
+    break-before: page;
+  }
+
+  .programa-grade .mes[data-oculto="sim"] {
+    display: none !important;
+  }
+
+  .programa-grade .cabecalho-mes {
+    position: static !important;
+  }
+
+  .programa-grade .grade-scroll {
+    overflow: visible !important;
+  }
+
+  .programa-grade .calendario-grade {
+    min-width: 0 !important;
+  }
+
+  .programa-grade .grade-tabela {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 9px !important;
+  }
+
+  .programa-grade .grade-tabela th,
+  .programa-grade .grade-tabela td {
+    position: static !important;
+  }
+
+  .programa-grade .cartao {
+    box-shadow: none !important;
+    transform: none !important;
+  }
+}

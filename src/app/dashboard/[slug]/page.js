@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { rrulestr } from 'rrule';
 import { getRoomEvents, getDashboardStats } from "@/app/actions"; 
+import { congregacoesAbaixo } from "@/lib/festividades/salas";
 import RoomDashboard from "./RoomDashboard";
 
 const prisma = new PrismaClient();
@@ -56,8 +57,9 @@ function expandEvents(events) {
   return expanded;
 }
 
-export default async function RoomEditorPage({ params }) {
+export default async function RoomEditorPage({ params, searchParams }) {
   const { slug } = await params;
+  const { aba } = await searchParams;
   const { userId } = await auth();
   if (!userId) redirect("/");
 
@@ -96,8 +98,84 @@ export default async function RoomEditorPage({ params }) {
       canEdit: ev.roomId === room.id
   }))));
 
+  const ehSetor = ["setor", "ministerio"].includes(room.type);
+  // Congregações que ficam abaixo desta sala (setor ou ministério), em qualquer nível.
+  const idsCongregacoes = ehSetor
+    ? congregacoesAbaixo(
+        await prisma.room.findMany({ select: { id: true, name: true, type: true, parentId: true } }),
+        room.id,
+      ).map((s) => s.id)
+    : [];
+  const [programasBrutos, participacoesBrutas, avulsasBrutas] = await Promise.all([
+    ehSetor
+      ? prisma.program.findMany({
+          where: { parentRoomId: room.id },
+          include: {
+            children: { select: { id: true, room: { select: { type: true } } } },
+            requests: { select: { status: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        })
+      : [],
+    room.parentId
+      ? prisma.programChild.findMany({
+          where: { roomId: room.id },
+          include: {
+            program: {
+              include: {
+                requests: {
+                  where: { roomId: room.id, status: { in: ["enviada", "em_analise"] } },
+                  select: { id: true },
+                },
+              },
+            },
+          },
+        })
+      : [],
+    ehSetor
+      ? prisma.festivityRequest.findMany({
+          where: {
+            programId: null,
+            status: { in: ["enviada", "em_analise"] },
+            roomId: { in: idsCongregacoes },
+          },
+          include: { room: { select: { name: true } } },
+          orderBy: { createdAt: "asc" },
+        })
+      : [],
+  ]);
+  const festividades = JSON.parse(JSON.stringify({
+    programas: programasBrutos.map((p) => ({
+      id: p.id,
+      name: p.name,
+      startsAt: p.startsAt,
+      endsAt: p.endsAt,
+      congregacoes: p.children.filter((c) => c.room.type === "congregacao").length,
+      pendentes: p.requests.filter((r) => ["enviada", "em_analise"].includes(r.status)).length,
+    })),
+    participacoes: participacoesBrutas.map((c) => ({
+      id: c.id,
+      name: c.program.name,
+      inviteCode: c.program.inviteCode,
+      pendentes: c.program.requests.length,
+      prazo: c.program.deadline,
+    })),
+    avulsas: avulsasBrutas.map((r) => ({
+      id: r.id,
+      title: r.title,
+      sala: r.room.name,
+      start: r.start,
+      end: r.end,
+      createdAt: r.createdAt,
+    })),
+    ehSetor,
+    ehGestor: ["OWNER", "ADMIN"].includes(membership.role),
+  }));
+
   return (
     <RoomDashboard 
+        abaInicial={aba}
+        festividades={festividades}
         room={JSON.parse(JSON.stringify(room))}
         initialEvents={safeEvents} 
         categories={JSON.parse(JSON.stringify(categories))} 

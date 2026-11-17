@@ -8,27 +8,31 @@ datasource db {
 }
 
 model Room {
-  id         String     @id @default(cuid())
-  slug       String     @unique
+  id         String  @id @default(cuid())
+  slug       String  @unique
   name       String
   type       String
-  color      String     @default("#3b82f6")
-  inviteCode String     @unique @default(cuid())
+  color      String  @default("#3b82f6")
+  inviteCode String  @unique @default(cuid())
   group      String?
 
-  parentId   String?
-  parent     Room?      @relation("Hierarchy", fields: [parentId], references: [id])
-  children   Room[]     @relation("Hierarchy")
+  parentId String?
+  parent   Room?   @relation("Hierarchy", fields: [parentId], references: [id])
+  children Room[]  @relation("Hierarchy")
 
   members    Member[]
   followers  Follower[]
   events     Event[]
   categories Category[]
 
-  broadcastsFrom EventBroadcast[] @relation("FromRoom")
-  broadcastsTo   EventBroadcast[] @relation("ToRoom")
-  blockParentCascade Boolean  @default(false) // Novo: Para bloquear o pai
-  targetedEvents     Event[]  @relation("EventTargets") // Novo: Relação para repasse
+  broadcastsFrom     EventBroadcast[] @relation("FromRoom")
+  broadcastsTo       EventBroadcast[] @relation("ToRoom")
+  blockParentCascade Boolean          @default(false) // Novo: Para bloquear o pai
+  targetedEvents     Event[]          @relation("EventTargets") // Novo: Relação para repasse
+
+  festivityPrograms    Program[]          @relation("ProgramParent")
+  festivityMemberships ProgramChild[]
+  festivityRequests    FestivityRequest[]
 }
 
 model Member {
@@ -37,7 +41,7 @@ model Member {
   roomId String
   role   String
 
-  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roomId])
 }
@@ -48,63 +52,64 @@ model Follower {
   roomId    String
   icalToken String @unique @default(cuid())
 
-  room      Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@unique([userId, roomId])
 }
 
 model Event {
-  id            String   @id @default(cuid())
-  title         String
-  description   String?
+  id          String  @id @default(cuid())
+  title       String
+  description String?
 
-  start         DateTime
-  end           DateTime
-  allDay        Boolean  @default(false)
+  start  DateTime
+  end    DateTime
+  allDay Boolean  @default(false)
 
-  isRecurring   Boolean  @default(false)
-  rrule         String?
+  isRecurring Boolean @default(false)
+  rrule       String?
 
-  cascade       Boolean  @default(false)
+  cascade Boolean @default(false)
 
-  roomId        String
-  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
-  categoryId    String?
-  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
-  createdAt     DateTime @default(now())
-updatedAt DateTime @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
-  exceptions    EventException[]
-  broadcasts    EventBroadcast[]
-  visibleToParent  Boolean  @default(false) // Novo: Se o pai pode ver
-  targetRooms      Room[]   @relation("EventTargets") // Novo: Para quem esse evento foi enviado
+  exceptions      EventException[]
+  broadcasts      EventBroadcast[]
+  visibleToParent Boolean          @default(false) // Novo: Se o pai pode ver
+  targetRooms     Room[]           @relation("EventTargets") // Novo: Para quem esse evento foi enviado
 
+  festivityRequest FestivityRequest?
 }
 
 model EventBroadcast {
-  id          String   @id @default(cuid())
-  eventId     String
-  fromRoomId  String
-  toRoomId    String
+  id         String @id @default(cuid())
+  eventId    String
+  fromRoomId String
+  toRoomId   String
 
-  approvedAt  DateTime @default(now())
+  approvedAt DateTime @default(now())
 
-  event       Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  fromRoom    Room  @relation("FromRoom", fields: [fromRoomId], references: [id])
-  toRoom      Room  @relation("ToRoom", fields: [toRoomId], references: [id])
+  event    Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  fromRoom Room  @relation("FromRoom", fields: [fromRoomId], references: [id])
+  toRoom   Room  @relation("ToRoom", fields: [toRoomId], references: [id])
 
   @@unique([eventId, toRoomId])
 }
 
 model Category {
-  id     String  @id @default(cuid())
-  name   String
-  color  String
+  id    String @id @default(cuid())
+  name  String
+  color String
 
   roomId String
-  room   Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   events Event[]
 
@@ -116,7 +121,121 @@ model EventException {
   originalEventId String
   exceptionDate   DateTime
 
-  originalEvent   Event    @relation(fields: [originalEventId], references: [id], onDelete: Cascade)
+  originalEvent Event @relation(fields: [originalEventId], references: [id], onDelete: Cascade)
 
   @@unique([originalEventId, exceptionDate])
+}
+
+// Programa de festividades. Um pai (sala) organiza filhos (salas) por região.
+model Program {
+  id         String    @id @default(cuid())
+  name       String
+  startsAt   DateTime
+  endsAt     DateTime
+  format     String? // legado: sem uso. Não há mais escolha de formato fixo/semanal.
+  deadline   DateTime? // Prazo opcional para solicitações do programa
+  criteria   String? // Critérios de decisão definidos pelo pai, em texto livre
+  inviteCode String    @unique @default(cuid()) // Código do link de convite enviado às congregações
+  createdAt  DateTime  @default(now())
+
+  parentRoomId String
+  parentRoom   Room   @relation("ProgramParent", fields: [parentRoomId], references: [id], onDelete: Cascade)
+
+  regions     ProgramRegion[]
+  children    ProgramChild[]
+  departments ProgramDepartment[]
+  requests    FestivityRequest[]
+  releasedDays ProgramReleasedDay[]
+}
+
+model ProgramRegion {
+  id        String         @id @default(cuid())
+  name      String
+  programId String
+  program   Program        @relation(fields: [programId], references: [id], onDelete: Cascade)
+  children  ProgramChild[]
+
+  @@unique([programId, name])
+}
+
+// Filho (sala) participando de um programa, com sua região.
+model ProgramChild {
+  id        String  @id @default(cuid())
+  programId String
+  roomId    String
+  regionId  String?
+
+  program     Program                  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  room        Room                     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  region      ProgramRegion?           @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  departments ProgramChildDepartment[]
+
+  @@unique([programId, roomId])
+}
+
+// Departamentos que a congregação marcou como festividade em sua sala.
+model ProgramChildDepartment {
+  childId      String
+  departmentId String
+  child        ProgramChild      @relation(fields: [childId], references: [id], onDelete: Cascade)
+  department   ProgramDepartment @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@id([childId, departmentId])
+}
+
+model ProgramDepartment {
+  id          String                   @id @default(cuid())
+  name        String
+  defaultDays String? // Dias padrão no formato fixo, ex.: "5,6" (0=domingo)
+  active      Boolean                  @default(true)
+  programId   String
+  program     Program                  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  requests    FestivityRequest[]
+  childLinks  ProgramChildDepartment[]
+
+  @@unique([programId, name])
+}
+
+// Solicitação de data de um filho. Quando aprovada, vira um Event na sala do filho.
+// Alterações geram uma nova solicitação que substitui a anterior (supersedesId).
+// programId nulo = solicitação avulsa, sem programa e sem prazo.
+model FestivityRequest {
+  id            String    @id @default(cuid())
+  title         String?
+  start         DateTime
+  end           DateTime
+  status        String    @default("enviada") // enviada | em_analise | aprovada | rejeitada | substituida
+  reason        String? // Motivo da decisão do pai, quando houver
+  requestedById String
+  decidedById   String?
+  createdAt     DateTime  @default(now())
+  decidedAt     DateTime?
+
+  programId    String?
+  program      Program?           @relation(fields: [programId], references: [id], onDelete: Cascade)
+  departmentId String?
+  department   ProgramDepartment? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  supersedesId String?           @unique
+  supersedes   FestivityRequest? @relation("Versions", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy FestivityRequest? @relation("Versions")
+
+  eventId String? @unique
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([programId, status])
+  @@index([roomId])
+}
+
+// Datas que o setor liberou para as congregacoes pedirem.
+// Vazio = todos os dias do período ficam liberados.
+model ProgramReleasedDay {
+  programId String
+  date      DateTime
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@id([programId, date])
 }

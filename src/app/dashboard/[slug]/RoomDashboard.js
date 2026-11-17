@@ -1,6 +1,9 @@
 "use client";
 import { useState, useMemo } from 'react';
+import Link from 'next/link';
 import AdminCalendar from './AdminCalendar';
+import Festividades from './Festividades';
+import { PartyPopper } from 'lucide-react';
 import { 
   LayoutDashboard, 
   Calendar as CalIcon, 
@@ -14,9 +17,19 @@ import {
   Search
 } from 'lucide-react';
 
-export default function RoomDashboard({ room, initialEvents, categories, allParents, childrenRooms, stats }) {
-  const [activeTab, setActiveTab] = useState('calendar'); // 'calendar', 'analytics', 'hierarchy'
+// Aviso discreto: mostra só o que a congregação precisa saber agora.
+function textoAviso(p) {
+  if (p.pendentes > 0) return `${p.pendentes} pedido(s) aguardando decisão do setor.`;
+  if (p.prazo && new Date(p.prazo) < new Date()) return "Prazo encerrado — use a confirmação avulsa se precisar.";
+  if (p.prazo) return `Você pode pedir datas até ${new Date(p.prazo).toLocaleDateString('pt-BR')}.`;
+  return "Abra a grade para pedir suas datas.";
+}
+
+export default function RoomDashboard({ room, initialEvents, categories, allParents, childrenRooms, stats, festividades, abaInicial }) {
+  const [activeTab, setActiveTab] = useState(abaInicial === 'festividades' ? 'festividades' : 'calendar'); // 'calendar', 'analytics', 'hierarchy', 'festividades'
   const [searchTerm, setSearchTerm] = useState("");
+  const [avisoDispensado, setAvisoDispensado] = useState(false);
+  const avisos = festividades?.participacoes ?? [];
 
   // Estilização de Cards
   const Card = ({ title, value, icon: Icon, color }) => (
@@ -64,6 +77,12 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
                 >
                     <Users size={18} /> Congregações
                 </button>
+                <button 
+                    onClick={() => setActiveTab('festividades')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition ${activeTab === 'festividades' ? 'bg-amber-50 text-amber-600' : 'text-slate-500 hover:bg-slate-50'}`}
+                >
+                    <PartyPopper size={18} /> Programas
+                </button>
             </nav>
         </div>
         
@@ -71,6 +90,39 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
              <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">ID: {room.inviteCode}</span>
         </div>
       </div>
+
+      {!avisoDispensado && avisos.length > 0 && activeTab !== 'festividades' && (
+        <div className="flex-none px-4 pt-3">
+          <div className="max-w-7xl mx-auto rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 via-white to-amber-50 shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="flex items-center gap-2 text-violet-700">
+              <PartyPopper size={18} />
+              <span className="text-sm font-black">Programas</span>
+            </div>
+            <div className="flex-1 min-w-0 grid gap-1">
+              {avisos.map((p) => (
+                <div key={p.id} className="flex flex-wrap items-center gap-x-2 text-xs md:text-sm">
+                  <span className="font-black text-slate-800">{p.name}</span>
+                  <span className="text-slate-600">{textoAviso(p)}</span>
+                  <Link
+                    href={`/programas/convite/${p.inviteCode}?roomId=${room.id}`}
+                    className="font-bold text-blue-600 hover:underline whitespace-nowrap"
+                  >
+                    Abrir grade →
+                  </Link>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setAvisoDispensado(true)}
+              aria-label="Dispensar aviso"
+              className="text-slate-400 hover:text-slate-700 text-xl leading-none px-1"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* CONTEÚDO DINÂMICO */}
       <div className="flex-1 overflow-hidden">
@@ -81,6 +133,17 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
             categories={categories} 
             allParents={allParents} 
             childrenRooms={childrenRooms} 
+          />
+        )}
+
+        {activeTab === 'festividades' && (
+          <Festividades
+            room={room}
+            programas={festividades.programas}
+            participacoes={festividades.participacoes}
+            avulsas={festividades.avulsas}
+            ehGestor={festividades.ehGestor}
+            ehSetor={festividades.ehSetor}
           />
         )}
 

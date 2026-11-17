@@ -33,7 +33,9 @@ export default async function Dashboard() {
             <span className="text-3xl">📅</span>
             <h1 className="text-3xl font-black text-slate-900">Painel de Controle</h1>
           </div>
-          <UserButton afterSignOutUrl="/"/>
+          <div className="flex items-center gap-4">
+            <UserButton afterSignOutUrl="/"/>
+          </div>
       </header>
       
       <main className="max-w-7xl mx-auto grid gap-10 lg:grid-cols-3">
