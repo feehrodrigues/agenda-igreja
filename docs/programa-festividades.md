@@ -1,11 +1,15 @@
 # Programa de agendamento (festividades) — requisitos do dono do projeto
 
 > Fonte: pedido original do Felipe. **Ler antes de mexer em `src/app/programas`, `src/app/dashboard/[slug]` e `src/lib/festividades`.**
-> O site continua igual. O programa é uma **adição** que ajuda a agenda da sala (setor e congregações), com título configurável pelo setor.
+> O site continua igual. O programa é uma **adição** que ajuda a agenda da sala (pai e salas filhas), com título configurável pelo pai.
+
+## Regra central: pai → filhos diretos
+
+**Não importa o tipo** (ministério, setor ou congregação): o programa é sempre do **pai** para os seus **filhos diretos**. Netos não entram. Qualquer sala que tenha filhos diretos pode promover um programa, e o pai pode lançar datas diretamente para um filho.
 
 ## Princípios (não negociáveis)
 
-1. É um **PROGRAMA**, não um formulário. Tem título próprio (ex.: "Programa de Festividade 2027"), definido pelo setor/ministério.
+1. É um **PROGRAMA**, não um formulário. Tem título próprio (ex.: "Programa de Festividade 2027"), definido pelo pai.
 2. **Vive dentro da sala** (setor, ministério ou congregação), em uma aba/menu. Nunca como página solta do site.
 3. **A grade é a tela principal** (dias × departamentos, referência: Trello). Em tempo real, para o setor **e** para as congregações (todas se veem para saber onde alocar).
 4. **UX caprichada**: menus, navegação, sem cara de formulário corrido.
@@ -40,8 +44,10 @@ Além da grade, a mesma tela alterna para **Calendário**: o mês inteiro em 7 c
 - clique no cartão abre o mesmo detalhe da grade;
 - é **somente leitura**: pedir continua sendo na grade, para não errar o alvo.
 
-### Datas liberadas pelo setor (aba Datas)
-O setor escolhe no calendário **quais dias** as congregações podem pedir; o critério é livre.
+### Datas liberadas pelo pai (aba Datas)
+O pai escolhe no calendário **quais dias** as salas filhas podem pedir; o critério é livre.
+- Acima do calendário, a **agenda do pai no período** (eventos da própria sala, repassados e em cascata) fica listada por dia, para liberar com precisão.
+- Cada dia do calendário mostra marcadores dos eventos já existentes na agenda do pai.
 - Atalhos por mês: "sex + sáb", "1ª…5ª semana", "limpar mês"; e "limpar tudo" no topo.
 - Dias com pedido aparecem com um ponto âmbar; remover um deles não apaga os pedidos existentes (só avisa).
 - **Nenhuma data marcada** = volta a valer a regra do formato (fixo: sexta e sábado; livre: todos os dias).
@@ -50,17 +56,18 @@ O setor escolhe no calendário **quais dias** as congregações podem pedir; o c
 
 ## Papéis e fluxo
 
-### Setor (sala setor/ministério)
+### Pai (qualquer sala com filhos diretos)
 1. Cadastra a agenda do ministério (geralmente vem em **PDF**). Desejado: importar PDF/lista e preencher as datas automaticamente, gratuito.
-2. Define as datas do setor e do ministério que envolvem todas as congregações (festividades, eventos, palestras, cultos, reuniões).
+2. Define as datas do pai que envolvem as salas filhas (festividades, eventos, palestras, cultos, reuniões).
 3. Cria o programa: título, regiões (A, B, C… nome livre), departamentos (Varões, UMADEB, CREIO, UFADEB, SEMAD…), formato e prazo (opcional).
-4. **Libera as datas** em que as congregações podem solicitar (regra geral: sexta e sábado por departamento).
+4. **Libera as datas** em que as salas filhas podem solicitar (regra geral: sexta e sábado por departamento).
 5. Compartilha o link de convite do programa.
 6. Recebe solicitações e decide com **critérios próprios**: aceitar uma ou várias para a mesma data (ex.: regiões diferentes) ou quem pediu primeiro.
-7. Acompanha o progresso: quais congregações ainda não enviaram, por departamento e por região.
+7. Pode **adicionar datas diretamente** para um filho (nasce aprovada, entra na agenda da sala filha e é repassada às demais).
+8. Acompanha o progresso: quais salas ainda não enviaram, por departamento e por região.
 
-### Congregação (sala filha do setor)
-1. O secretário entra na sala da congregação e vê um aviso **elegante**, que chama atenção sem forçar (não bloqueia a tela), **ou** abre direto o link do programa.
+### Sala filha (qualquer tipo)
+1. O secretário entra na sala e vê um aviso **elegante**, que chama atenção sem forçar (não bloqueia a tela), **ou** abre direto o link do programa.
 2. Escolhe os departamentos que terão festividade (nem todas as igrejas têm os mesmos).
 3. Escolhe o formato: **segunda–sábado** (festividade na semana, cada dia um departamento, a critério da igreja) ou **sexta e sábado**.
 4. Preenche cada departamento nas datas disponíveis. Horário padrão **19h–21h**, editável; pode ter 2 festividades no mesmo dia.
@@ -82,7 +89,11 @@ O setor escolhe no calendário **quais dias** as congregações podem pedir; o c
 | Modelo de dados, migração, regras de conflito (mesma região bloqueia, outra região avisa) | feito |
 | Aba "Programas" dentro da sala (setor e congregação) | feito |
 | Grade como tela principal (setor e congregação), com atualização automática | feito (pedido por clique ainda sem teste completo no navegador) |
-| Abas do setor: Grade, Datas, Progresso, Pedidos, Congregações, Configurações | feito |
+| Abas do pai: Grade, Datas, Progresso, Pedidos, Filhos, Configurações | feito |
+| Pai adiciona datas direto para um filho (aprovada, entra na agenda da sala filha e é repassada) | feito |
+| Agenda do pai visível na aba Datas e na grade (calendário, tabela e lista) | feito |
+| Responsividade de Programas no celular (lista como padrão, filtros colapsáveis, abas roláveis, modais em folha) | feito |
+| Programa só para filhos diretos (qualquer tipo: ministério, setor ou congregação) | feito |
 | Progresso por congregação, departamento e região + "próximo passo" | feito |
 | Datas liberadas na grade (formato fixo = sexta/sábado) | feito |
 | Setor escolhe datas liberadas no calendário (semanas, sex+sáb, dias soltos) — aba Datas | feito (`ProgramReleasedDay`; lista vazia volta à regra do formato; servidor recusa data não liberada) |

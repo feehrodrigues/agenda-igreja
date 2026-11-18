@@ -11,22 +11,22 @@ const fmtHora = (d) =>
   });
 
 // Aba "Programas" dentro da sala: o setor promove programas, a congregação participa deles.
-export default function Programas({ room, programas, participacoes, avulsas, ehGestor, ehSetor }) {
-  const temSetor = !!room.parentId;
+export default function Programas({ room, programas, participacoes, avulsas, ehGestor, ehPai }) {
+  const temPai = !!room.parentId;
   return (
-    <div className="h-full overflow-y-auto p-6 md:p-8">
-      <div className="max-w-4xl mx-auto grid gap-6">
+    <div className="h-full overflow-y-auto p-3 sm:p-4 md:p-8">
+      <div className="mx-auto grid max-w-4xl gap-4 md:gap-6">
         <header>
-          <h2 className="text-2xl font-black text-slate-900">Programas</h2>
+          <h2 className="text-xl font-black text-slate-900 sm:text-2xl">Programas</h2>
           <p className="text-sm text-slate-500">
-            {ehSetor
+            {ehPai
               ? `Programas de agendamento (com título próprio) promovidos por ${room.name}.`
-              : "Programas do seu setor ou ministério. Abra um programa para alocar suas datas na grade."}
+              : "Programas do seu pai (setor ou ministério). Abra um programa para alocar suas datas na grade."}
           </p>
         </header>
 
-        {ehSetor && (
-          <section className="bg-white rounded-2xl border p-6 grid gap-4">
+        {ehPai && (
+          <section className="grid gap-4 rounded-2xl border bg-white p-4 sm:p-6">
             <h3 className="font-black">Programas desta sala</h3>
             {programas.length === 0 && <p className="text-sm text-slate-500">Nenhum programa criado ainda.</p>}
             <div className="grid gap-2">
@@ -39,7 +39,7 @@ export default function Programas({ room, programas, participacoes, avulsas, ehG
                   <div>
                     <div className="font-bold">{p.name}</div>
                     <div className="text-xs text-slate-500">
-                      {fmt(p.startsAt)} a {fmt(p.endsAt)} · {p.congregacoes} congregação(ões)
+                      {fmt(p.startsAt)} a {fmt(p.endsAt)} · {p.participantes} sala(s) filha(s)
                       {p.pendentes > 0 && ` · ${p.pendentes} pedido(s) aguardando`}
                     </div>
                   </div>
@@ -58,13 +58,13 @@ export default function Programas({ room, programas, participacoes, avulsas, ehG
           </section>
         )}
 
-        {ehSetor && (
-          <section className="bg-white rounded-2xl border p-6 grid gap-4">
+        {ehPai && (
+          <section className="grid gap-4 rounded-2xl border bg-white p-4 sm:p-6">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <h3 className="font-black">Confirmações avulsas</h3>
                 <p className="text-sm text-slate-500">
-                  Eventos das congregações que precisam da sua confirmação, fora de programa e sem prazo.
+                  Eventos das salas filhas que precisam da sua confirmação, fora de programa e sem prazo.
                 </p>
               </div>
               {avulsas.length > 0 && (
@@ -86,12 +86,12 @@ export default function Programas({ room, programas, participacoes, avulsas, ehG
           </section>
         )}
 
-        {temSetor && (
-          <section className="bg-white rounded-2xl border p-6 grid gap-3">
+        {temPai && (
+          <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:p-6">
             <h3 className="font-black">Programas em que {room.name} participa</h3>
             {participacoes.length === 0 && (
               <p className="text-sm text-slate-500">
-                Nenhum ainda. Quando o setor enviar o link do programa, abra-o por aqui.
+                Nenhum ainda. Quando o pai enviar o link do programa, abra-o por aqui.
               </p>
             )}
             {participacoes.map((p) => (
@@ -107,20 +107,20 @@ export default function Programas({ room, programas, participacoes, avulsas, ehG
           </section>
         )}
 
-        {temSetor && (
-          <section className="bg-white rounded-2xl border p-6 grid gap-4">
+        {temPai && (
+          <section className="grid gap-4 rounded-2xl border bg-white p-4 sm:p-6">
             <div>
-              <h3 className="font-black">Confirmação avulsa ao setor</h3>
+              <h3 className="font-black">Confirmação avulsa ao pai</h3>
               <p className="text-sm text-slate-500">
-                Para eventos que precisam de confirmação do setor, fora de programa e sem prazo.
+                Para eventos que precisam de confirmação do pai (setor ou ministério), fora de programa e sem prazo.
               </p>
             </div>
             <FormAvulso salas={[{ id: room.id, name: room.name }]} />
           </section>
         )}
 
-        {!ehSetor && !temSetor && (
-          <p className="text-sm text-slate-500">Esta sala não está associada a um setor ou ministério.</p>
+        {!ehPai && !temPai && (
+          <p className="text-sm text-slate-500">Esta sala não está vinculada a um pai (setor ou ministério).</p>
         )}
       </div>
     </div>

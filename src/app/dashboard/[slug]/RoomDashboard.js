@@ -48,46 +48,46 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
 
   return (
     <div className="h-screen w-full bg-slate-50 flex flex-col overflow-hidden">
-      {/* SIDEBAR MINI / NAV SUPERIOR */}
-      <div className="flex-none bg-white border-b border-slate-200 px-6 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
-                    {room.name.charAt(0)}
-                </div>
-                <span className="font-black text-slate-800 hidden md:block">{room.name}</span>
+      {/* BARRA SUPERIOR / NAVEGAÇÃO */}
+      <div className="flex-none border-b border-slate-200 bg-white px-3 py-2 sm:px-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-8">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-blue-600 font-bold text-white">
+              {room.name.charAt(0)}
             </div>
-            
-            <nav className="flex gap-1">
-                <button 
-                    onClick={() => setActiveTab('calendar')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition ${activeTab === 'calendar' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                    <CalIcon size={18} /> Agenda
-                </button>
-                <button 
-                    onClick={() => setActiveTab('analytics')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition ${activeTab === 'analytics' ? 'bg-purple-50 text-purple-600' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                    <LayoutDashboard size={18} /> Dashboard
-                </button>
-                <button 
-                    onClick={() => setActiveTab('hierarchy')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition ${activeTab === 'hierarchy' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                    <Users size={18} /> Congregações
-                </button>
-                <button 
-                    onClick={() => setActiveTab('festividades')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition ${activeTab === 'festividades' ? 'bg-amber-50 text-amber-600' : 'text-slate-500 hover:bg-slate-50'}`}
-                >
-                    <PartyPopper size={18} /> Programas
-                </button>
-            </nav>
-        </div>
-        
-        <div className="flex items-center gap-3">
-             <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">ID: {room.inviteCode}</span>
+            <span className="min-w-0 truncate font-black text-slate-800">{room.name}</span>
+          </div>
+
+          <nav className="grid grid-cols-4 gap-1 md:flex md:items-center md:gap-1">
+            <button
+              onClick={() => setActiveTab('calendar')}
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-bold transition md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm ${activeTab === 'calendar' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              <CalIcon size={18} /> Agenda
+            </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-bold transition md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm ${activeTab === 'analytics' ? 'bg-purple-50 text-purple-600' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              <LayoutDashboard size={18} /> Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('hierarchy')}
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-bold transition md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm ${activeTab === 'hierarchy' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              <Users size={18} /> Congregações
+            </button>
+            <button
+              onClick={() => setActiveTab('festividades')}
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-bold transition md:flex-row md:gap-2 md:px-4 md:py-2 md:text-sm ${activeTab === 'festividades' ? 'bg-amber-50 text-amber-600' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              <PartyPopper size={18} /> Programas
+            </button>
+          </nav>
+
+          <span className="hidden flex-none rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-400 lg:block">
+            ID: {room.inviteCode}
+          </span>
         </div>
       </div>
 
@@ -143,7 +143,7 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
             participacoes={festividades.participacoes}
             avulsas={festividades.avulsas}
             ehGestor={festividades.ehGestor}
-            ehSetor={festividades.ehSetor}
+            ehPai={festividades.ehPai}
           />
         )}
 

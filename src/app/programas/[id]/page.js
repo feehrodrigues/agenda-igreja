@@ -3,10 +3,12 @@ import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AtualizacaoAutomatica, GradeSolicitacoes, ROTULO_STATUS } from "../painel";
-import { BotaoCopiar, BotaoDecisao, BotaoSincronizarCongregacoes } from "../formularios";
+import { BotaoCopiar, BotaoDecisao, BotaoSincronizarCongregacoes, SeletorRegiaoDoFilho } from "../formularios";
+import { CabecalhoPrograma } from "../CabecalhoPrograma";
 import { EditorDatas } from "../editor-datas";
 import { chaveDia, montarGrade, solicitacoesDoPrograma } from "@/lib/festividades/grade";
-import { congregacoesAbaixo } from "@/lib/festividades/salas";
+import { carregarAgendaDaSala } from "@/lib/festividades/agenda";
+import { filhosDiretos } from "@/lib/festividades/salas";
 import { calcularProgresso, proximoPasso } from "@/lib/festividades/progresso";
 
 const ROTULO_SITUACAO = {
@@ -28,7 +30,7 @@ const ABAS = [
   { id: "datas", rotulo: "Datas" },
   { id: "progresso", rotulo: "Progresso" },
   { id: "pedidos", rotulo: "Pedidos" },
-  { id: "congregacoes", rotulo: "Congregações" },
+  { id: "congregacoes", rotulo: "Filhos" },
   { id: "configuracoes", rotulo: "Configurações" },
 ];
 
@@ -58,11 +60,8 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
       releasedDays: { orderBy: { date: "asc" } },
     },
   });
+  // Só as salas filhas do criador participam do programa (setores ou congregações).
   if (!programa) redirect("/dashboard");
-
-  // Só congregações participam do programa. Setores/ministérios que entraram
-  // por versões antigas ficam fora das listas e do progresso.
-  programa.children = programa.children.filter((c) => c.room.type === "congregacao");
 
   const membro = await prisma.member.findFirst({
     where: { userId, roomId: programa.parentRoomId },
@@ -74,6 +73,12 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
   const grade = montarGrade({ programa, solicitacoes });
   const pendentes = programa.requests.filter((r) => ABERTAS.includes(r.status));
   const abaAtiva = ABAS.some((a) => a.id === aba) ? aba : "grade";
+  const agendaPai = await carregarAgendaDaSala(
+    prisma,
+    programa.parentRoomId,
+    programa.startsAt,
+    programa.endsAt,
+  );
 
   // Informação de decisão: região de cada sala, ordem de chegada e concorrentes no mesmo dia.
   const regiaoPorSala = Object.fromEntries(
@@ -103,7 +108,7 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
     select: { id: true, name: true, type: true, parentId: true },
     orderBy: { name: "asc" },
   });
-  const salasFora = congregacoesAbaixo(todasSalas, programa.parentRoomId)
+  const salasFora = filhosDiretos(todasSalas, programa.parentRoomId)
     .filter((s) => !idsDentro.includes(s.id))
     .map((s) => ({ id: s.id, name: s.name }));
   const progresso = calcularProgresso({
@@ -120,22 +125,20 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 pb-24 md:p-8 md:pb-24 font-sans text-slate-900">
+    <div className="min-h-screen bg-slate-50 pb-16 font-sans text-slate-900">
       <AtualizacaoAutomatica />
-      <div className="max-w-7xl mx-auto grid gap-5">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <Link href={`/dashboard/${programa.parentRoom.slug}?aba=festividades`} className="text-sm font-bold text-blue-600 hover:underline">
-              ← {programa.parentRoom.name}
-            </Link>
-            <h1 className="text-2xl font-black mt-1">{programa.name}</h1>
+      <CabecalhoPrograma sala={programa.parentRoom} titulo="Programa" />
+      <div className="mx-auto grid min-w-0 max-w-7xl gap-4 p-3 sm:p-4 md:gap-5 md:p-8">
+        <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-black sm:text-2xl">{programa.name}</h1>
             <p className="text-sm text-slate-500">
               {fmtData(programa.startsAt)} a {fmtData(programa.endsAt)}
               {programa.deadline && ` · prazo para pedidos: ${fmtPrazo(programa.deadline)}`}
             </p>
           </div>
-          <div className="flex gap-4 text-center">
-            <Indicador rotulo="Congregações" valor={programa.children.length} />
+          <div className="grid w-full grid-cols-3 gap-2 text-center sm:flex sm:w-auto sm:gap-4">
+            <Indicador rotulo="Filhos" valor={programa.children.length} />
             <Indicador rotulo="Aguardando" valor={pendentes.length} destaque={pendentes.length > 0} />
             <Indicador
               rotulo="Aprovadas"
@@ -144,12 +147,12 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
           </div>
         </header>
 
-        <nav className="flex gap-1 border-b overflow-x-auto">
+        <nav className="-mx-3 flex gap-1 overflow-x-auto border-b px-3 sm:-mx-4 sm:px-4 md:mx-0 md:px-0">
           {ABAS.map((a) => (
             <Link
               key={a.id}
               href={`/programas/${programa.id}?aba=${a.id}`}
-              className={`px-4 py-2 text-sm font-bold whitespace-nowrap border-b-2 -mb-px ${
+              className={`px-3 py-2 text-sm font-bold whitespace-nowrap border-b-2 -mb-px sm:px-4 ${
                 abaAtiva === a.id
                   ? "border-blue-600 text-blue-700"
                   : "border-transparent text-slate-500 hover:text-slate-900"
@@ -183,15 +186,15 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
             </section>
 
             <div className="grid gap-5 lg:grid-cols-2">
-              <section className="bg-white rounded-2xl border p-5 grid gap-3">
+              <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:p-5">
                 <h2 className="font-black">Por região</h2>
-                {progresso.porRegiao.length === 0 && <p className="text-sm text-slate-500">Sem congregações ainda.</p>}
+                {progresso.porRegiao.length === 0 && <p className="text-sm text-slate-500">Sem salas filhas ainda.</p>}
                 {progresso.porRegiao.map((r) => (
                   <div key={r.nome} className="grid gap-1">
                     <div className="flex justify-between text-sm">
                       <span className="font-bold">{r.nome}</span>
                       <span className="text-slate-500">
-                        {r.completas}/{r.congregacoes} congregações completas · {r.percentual}%
+                        {r.completas}/{r.congregacoes} salas completas · {r.percentual}%
                       </span>
                     </div>
                     <Barra valor={r.percentual} />
@@ -199,7 +202,7 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
                 ))}
               </section>
 
-              <section className="bg-white rounded-2xl border p-5 grid gap-3">
+              <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:p-5">
                 <h2 className="font-black">Por departamento</h2>
                 {progresso.porDepartamento.map((d) => (
                   <div key={d.id} className="grid gap-1">
@@ -218,8 +221,8 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
               </section>
             </div>
 
-            <section className="bg-white rounded-2xl border p-5 grid gap-2">
-              <h2 className="font-black">Congregações</h2>
+            <section className="grid gap-2 rounded-2xl border bg-white p-4 sm:p-5">
+              <h2 className="font-black">Salas filhas</h2>
               {progresso.congregacoes.map((c) => {
                 const [texto, cor] = ROTULO_SITUACAO[c.situacao];
                 return (
@@ -246,7 +249,17 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
         )}
 
         {abaAtiva === "grade" && (
-          <GradeSolicitacoes grade={grade} programId={programa.id} regioes={programa.regions} />
+          <GradeSolicitacoes
+            grade={grade}
+            programId={programa.id}
+            regioes={programa.regions}
+            agendaPai={agendaPai}
+            filhos={programa.children.map((c) => ({ id: c.roomId, name: c.room.name }))}
+            podeAdicionar={ehGestor}
+            inicio={new Date(programa.startsAt).toISOString()}
+            fim={new Date(programa.endsAt).toISOString()}
+            liberadas={programa.releasedDays.map((d) => new Date(d.date).toISOString())}
+          />
         )}
 
         {abaAtiva === "datas" && (
@@ -258,12 +271,13 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
                 fim={new Date(programa.endsAt).toISOString()}
                 liberadas={programa.releasedDays.map((d) => new Date(d.date).toISOString())}
                 usadas={diasComPedido}
+                agenda={agendaPai}
               />
             ) : (
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 grid gap-3">
-                <h2 className="font-black">Datas liberadas pelo setor</h2>
+              <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                <h2 className="font-black">Datas liberadas pelo pai</h2>
                 <p className="text-sm text-slate-500">
-                  Quem define as datas é o setor. Aqui você acompanha o que está liberado para pedir.
+                  Quem define as datas é o pai. Aqui você acompanha o que está liberado para pedir.
                 </p>
                 {programa.releasedDays.length === 0 ? (
                   <p className="text-sm font-bold text-slate-700">
@@ -290,7 +304,7 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
           <div className="grid gap-4">
             {programa.criteria && (
               <section className="rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3">
-                <h2 className="text-sm font-black text-violet-900">Critérios do setor</h2>
+                <h2 className="text-sm font-black text-violet-900">Critérios do programa</h2>
                 <p className="text-sm text-violet-800 whitespace-pre-line">{programa.criteria}</p>
               </section>
             )}
@@ -328,7 +342,7 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
                         <div className="text-xs font-black text-slate-700">Concorrentes no mesmo dia</div>
                         {concorrentes.map((c) => (
                           <div key={c.id} className="flex flex-wrap items-center gap-x-2 text-xs text-slate-600">
-                            <span className={`font-bold ${c.mesmaRegiao ? "text-red-700" : "text-amber-700"}`}>
+                            <span className="font-bold text-amber-700">
                               {c.mesmaRegiao ? "⚠ Mesma região" : "Outra região"}
                             </span>
                             <span>
@@ -348,10 +362,10 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
 
         {abaAtiva === "congregacoes" && (
           <div className="grid gap-4">
-            <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 grid gap-2">
-              <h2 className="font-black">Link para as congregações</h2>
+            <section className="grid gap-2 rounded-2xl border border-blue-200 bg-blue-50 p-4 sm:p-5">
+              <h2 className="font-black">Link para as salas filhas</h2>
               <p className="text-sm text-slate-600">
-                As congregações ligadas a este setor já entram automaticamente. O link é só um
+                As salas filhas deste programa já entram automaticamente. O link é só um
                 atalho para elas abrirem o programa.
               </p>
               <code className="text-xs break-all rounded-lg bg-white border border-blue-100 px-3 py-2">
@@ -368,25 +382,41 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
               </div>
             </section>
 
-            <section className="bg-white rounded-2xl border p-5 grid gap-3">
+            <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="font-black">Congregações participantes</h2>
+                <h2 className="font-black">Salas filhas participantes</h2>
                 <BotaoSincronizarCongregacoes programId={programa.id} />
               </div>
+              <p className="text-sm text-slate-500">
+                O pai define a região de cada sala filha. É só um aviso: se duas salas da
+                mesma região pedirem o mesmo dia, você ainda pode aprovar as duas.
+              </p>
               {programa.children.length === 0 && (
                 <p className="text-sm text-slate-500">
-                  Nenhuma congregação associada a este setor ainda. Quando criar uma, use
-                  “Sincronizar congregações”.
+                  Nenhuma sala filha vinculada ainda. Quando criar uma, use
+                  “Sincronizar salas filhas”.
                 </p>
               )}
               <div className="grid gap-2">
                 {programa.children.map((c) => (
-                  <div key={c.id} className="border rounded-lg px-4 py-3 flex flex-wrap justify-between gap-2">
-                    <span className="font-bold">{c.room.name}</span>
-                    <span className="text-sm text-slate-500">
-                      {c.region?.name ?? "Sem região"} ·{" "}
-                      {c.departments.map((d) => d.department.name).join(", ") || "Sem departamentos escolhidos"}
-                    </span>
+                  <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2 sm:px-4 sm:py-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-bold">{c.room.name}</div>
+                      <div className="text-xs text-slate-500">
+                        {c.departments.map((d) => d.department.name).join(", ") || "Sem departamentos escolhidos"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        Região
+                      </span>
+                      <SeletorRegiaoDoFilho
+                        programId={programa.id}
+                        roomId={c.roomId}
+                        regioes={programa.regions}
+                        atual={c.regionId ?? ""}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -420,12 +450,6 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
           </section>
         )}
       </div>
-      <Link
-        href={`/dashboard/${programa.parentRoom.slug}?aba=festividades`}
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-lg hover:bg-slate-700"
-      >
-        ← Voltar
-      </Link>
     </div>
   );
 }
@@ -440,9 +464,9 @@ function Barra({ valor }) {
 
 function Indicador({ rotulo, valor, destaque = false }) {
   return (
-    <div className={`rounded-xl border px-4 py-2 bg-white ${destaque ? "border-amber-400" : ""}`}>
-      <div className={`text-xl font-black ${destaque ? "text-amber-600" : ""}`}>{valor}</div>
-      <div className="text-xs text-slate-500">{rotulo}</div>
+    <div className={`rounded-xl border bg-white px-2 py-1.5 sm:px-4 sm:py-2 ${destaque ? "border-amber-400" : ""}`}>
+      <div className={`text-lg font-black sm:text-xl ${destaque ? "text-amber-600" : ""}`}>{valor}</div>
+      <div className="text-[10px] text-slate-500 sm:text-xs">{rotulo}</div>
     </div>
   );
 }

@@ -3,7 +3,6 @@ import { PrismaClient } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { rrulestr } from 'rrule';
 import { getRoomEvents, getDashboardStats } from "@/app/actions"; 
-import { congregacoesAbaixo } from "@/lib/festividades/salas";
 import RoomDashboard from "./RoomDashboard";
 
 const prisma = new PrismaClient();
@@ -98,25 +97,18 @@ export default async function RoomEditorPage({ params, searchParams }) {
       canEdit: ev.roomId === room.id
   }))));
 
-  const ehSetor = ["setor", "ministerio"].includes(room.type);
-  // Congregações que ficam abaixo desta sala (setor ou ministério), em qualquer nível.
-  const idsCongregacoes = ehSetor
-    ? congregacoesAbaixo(
-        await prisma.room.findMany({ select: { id: true, name: true, type: true, parentId: true } }),
-        room.id,
-      ).map((s) => s.id)
-    : [];
+  // Qualquer sala pode promover programas: o que importa é ter filhos diretos.
+  const ehPai = room.children.length > 0;
+  const idsFilhos = room.children.map((c) => c.id);
   const [programasBrutos, participacoesBrutas, avulsasBrutas] = await Promise.all([
-    ehSetor
-      ? prisma.program.findMany({
-          where: { parentRoomId: room.id },
-          include: {
-            children: { select: { id: true, room: { select: { type: true } } } },
-            requests: { select: { status: true } },
-          },
-          orderBy: { createdAt: "desc" },
-        })
-      : [],
+    prisma.program.findMany({
+      where: { parentRoomId: room.id },
+      include: {
+        children: { select: { id: true } },
+        requests: { select: { status: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
     room.parentId
       ? prisma.programChild.findMany({
           where: { roomId: room.id },
@@ -132,12 +124,12 @@ export default async function RoomEditorPage({ params, searchParams }) {
           },
         })
       : [],
-    ehSetor
+    idsFilhos.length > 0
       ? prisma.festivityRequest.findMany({
           where: {
             programId: null,
             status: { in: ["enviada", "em_analise"] },
-            roomId: { in: idsCongregacoes },
+            roomId: { in: idsFilhos },
           },
           include: { room: { select: { name: true } } },
           orderBy: { createdAt: "asc" },
@@ -150,7 +142,7 @@ export default async function RoomEditorPage({ params, searchParams }) {
       name: p.name,
       startsAt: p.startsAt,
       endsAt: p.endsAt,
-      congregacoes: p.children.filter((c) => c.room.type === "congregacao").length,
+      participantes: p.children.length,
       pendentes: p.requests.filter((r) => ["enviada", "em_analise"].includes(r.status)).length,
     })),
     participacoes: participacoesBrutas.map((c) => ({
@@ -168,7 +160,7 @@ export default async function RoomEditorPage({ params, searchParams }) {
       end: r.end,
       createdAt: r.createdAt,
     })),
-    ehSetor,
+    ehPai,
     ehGestor: ["OWNER", "ADMIN"].includes(membership.role),
   }));
 

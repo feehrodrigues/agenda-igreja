@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FormRapido } from "./formularios";
+import { agendaPorDia } from "@/lib/festividades/grade";
+import { FormAdicionarData, FormAdicionarDataRapida, FormRapido } from "./formularios";
 
 export const ROTULO_STATUS = {
   enviada: "Enviada",
@@ -70,20 +71,66 @@ function Legenda() {
         </span>
       ))}
       <span className="flex items-center gap-1.5 font-semibold">
-        <span className="inline-block w-[3px] h-3.5 rounded-full bg-indigo-500" /> Minha congregação
+        <span className="inline-block w-[3px] h-3.5 rounded-full bg-indigo-500" /> Minha sala
       </span>
       <span className="flex items-center gap-1 font-semibold text-amber-600">⚠ Mesma região no dia</span>
+      <span className="flex items-center gap-1 font-semibold text-indigo-600">📌 Agenda do pai</span>
     </div>
   );
 }
 
-function Modal({ titulo, onFechar, children }) {
+// Chip de um evento que já está na agenda do pai (setor/ministério) naquele dia.
+function ChipAgenda({ evento, compacto = false }) {
+  const horario = evento.hora ? `${evento.hora}${evento.horaFim ? `–${evento.horaFim}` : ""} · ` : "";
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={onFechar}>
-      <div className="bg-slate-50 rounded-2xl p-5 w-full max-w-md grid gap-3" onClick={(e) => e.stopPropagation()}>
+    <span
+      title={`Agenda do pai · ${evento.titulo}${evento.hora ? ` (${evento.hora}${evento.horaFim ? `–${evento.horaFim}` : ""})` : ""}`}
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-indigo-800 ${
+        compacto ? "text-[9px]" : "text-[10px]"
+      }`}
+    >
+      <span aria-hidden="true">📌</span>
+      <span className="truncate font-bold">{evento.titulo}</span>
+      {evento.hora && !compacto && (
+        <span className="flex-none tabular-nums text-indigo-500">{horario.trim()}</span>
+      )}
+    </span>
+  );
+}
+
+// Lista compacta da agenda do pai para o dia (grade/lista/calendário).
+function AgendaDoDia({ eventos, compacto = false, limite = 99, className = "" }) {
+  if (!eventos?.length) return null;
+  return (
+    <div className={`grid min-w-0 gap-0.5 ${className}`}>
+      {eventos.slice(0, limite).map((evento) => (
+        <ChipAgenda key={evento.id} evento={evento} compacto={compacto} />
+      ))}
+      {eventos.length > limite && (
+        <span className="text-[9px] font-bold text-indigo-500">+{eventos.length - limite}</span>
+      )}
+    </div>
+  );
+}
+
+function Modal({ titulo, onFechar, children, largura = "max-w-md" }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-900/40 p-0 sm:items-center sm:p-4"
+      onClick={onFechar}
+    >
+      <div
+        className={`grid max-h-[92vh] w-full ${largura} gap-3 overflow-y-auto rounded-t-2xl bg-slate-50 p-4 sm:rounded-2xl sm:p-5`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between">
           <h3 className="font-black">{titulo}</h3>
-          <button type="button" onClick={onFechar} className="text-slate-500 hover:text-slate-900 text-2xl leading-none">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="-mr-1 px-1 text-2xl leading-none text-slate-500 hover:text-slate-900"
+            aria-label="Fechar"
+          >
             ×
           </button>
         </div>
@@ -97,7 +144,7 @@ function DetalheSolicitacao({ item, onFechar }) {
   return (
     <Modal titulo="Detalhes da solicitação" onFechar={onFechar}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-        <dt className="text-slate-500">Congregação</dt>
+        <dt className="text-slate-500">Sala</dt>
         <dd className="font-bold">{item.sala}</dd>
         <dt className="text-slate-500">Departamento</dt>
         <dd>{item.departamento}</dd>
@@ -122,7 +169,7 @@ function DetalheSolicitacao({ item, onFechar }) {
       </dl>
       {item.conflito && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-          Outra congregação da mesma região tem festividade neste dia.
+          Outra sala da mesma região já tem festividade neste dia. É só um aviso — você ainda pode pedir.
         </p>
       )}
     </Modal>
@@ -151,10 +198,10 @@ function CabecalhoMes({ mes, fechado, onAlternar }) {
     <button
       type="button"
       onClick={onAlternar}
-      className="sticky top-[58px] z-20 w-full flex flex-wrap items-center gap-x-4 gap-y-2 rounded-t-2xl px-4 py-3 text-left border-b border-slate-200 bg-white hover:bg-slate-50/60"
+      className="w-full flex flex-wrap items-center gap-x-3 gap-y-2 rounded-t-2xl border-b border-slate-200 bg-white px-3 py-3 text-left hover:bg-slate-50/60 md:sticky md:top-[64px] md:z-20 md:px-4"
     >
-      <span className="text-lg font-black tracking-tight text-slate-900">
-        {mes.nome} <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{mes.ano}</span>
+      <span className="text-base font-black tracking-tight text-slate-900 sm:text-lg">
+        {mes.nome} <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{mes.ano}</span>
       </span>
       <span className="flex flex-wrap gap-1.5">
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-bold text-slate-600 tabular-nums">
@@ -170,10 +217,10 @@ function CabecalhoMes({ mes, fechado, onAlternar }) {
           {mes.aguardando} aguardando
         </span>
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-bold text-slate-600 tabular-nums">
-          {mes.congregacoes} {mes.congregacoes === 1 ? "congregação" : "congregações"}
+          {mes.congregacoes} {mes.congregacoes === 1 ? "sala" : "salas"}
         </span>
       </span>
-      <span className="ml-auto flex items-center gap-2 w-36">
+      <span className="ml-auto flex w-28 items-center gap-2 sm:w-36">
         <span className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
           <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${mes.percentual}%` }} />
         </span>
@@ -215,7 +262,7 @@ function CartaoFestividade({ item, compacto, onClick, minha }) {
           </span>
         )}
         {item.conflito && (
-          <span title="Outra congregação da mesma região neste dia" className="text-[10px] font-bold text-amber-600">
+          <span title="Outra sala da mesma região neste dia" className="text-[10px] font-bold text-amber-600">
             ⚠
           </span>
         )}
@@ -232,20 +279,18 @@ function BotaoPedir({ chave, aberto, mesmaRegiao, outraRegiao, compacto, sempreV
       onClick={onPedir}
       title={
         mesmaRegiao
-          ? "Outra congregação da sua região já tem festividade neste dia"
+          ? "Aviso: outra sala da sua região já tem festividade neste dia. Você ainda pode pedir."
           : outraRegiao
-            ? "Há festividade de outra região neste dia (permitido)"
+            ? "Aviso: há festividade de outra região neste dia. Você ainda pode pedir."
             : "Pedir esta data (19h–21h)"
       }
       className={`rounded-lg border border-dashed text-[11px] font-bold transition-opacity ${
         compacto ? "px-1 py-0.5" : "px-2 py-1.5"
       } ${
-        mesmaRegiao
-          ? "border-red-300 bg-red-50/70 text-red-600"
-          : outraRegiao
-            ? "border-amber-300 bg-amber-50/70 text-amber-700"
-            : "border-slate-300 bg-indigo-50/40 text-indigo-600"
-      } ${sempreVisivel ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100 focus:opacity-100"}`}
+        mesmaRegiao || outraRegiao
+          ? "border-amber-300 bg-amber-50/70 text-amber-700"
+          : "border-slate-300 bg-indigo-50/40 text-indigo-600"
+      } ${sempreVisivel ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100 [@media(hover:none)]:opacity-100 focus:opacity-100"}`}
     >
       {mesmaRegiao ? "⚠ + Pedir (mesma região)" : "+ Pedir esta data"}
     </button>
@@ -253,14 +298,14 @@ function BotaoPedir({ chave, aberto, mesmaRegiao, outraRegiao, compacto, sempreV
 }
 
 // Visão de calendário: o mês inteiro em 7 colunas, para bater o olho e decidir.
-function CalendarioMes({ mes, liberados, itensDoDia, coresRegiao, onDetalhe }) {
+function CalendarioMes({ mes, liberados, itensDoDia, agendaDoDia, coresRegiao, onDetalhe }) {
   const celulas = useMemo(() => celulasDoMes(mes.chave), [mes.chave]);
   const porChave = useMemo(() => new Map(liberados.map((dia) => [dia.chave, dia])), [liberados]);
   const hoje = useMemo(() => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }), []);
 
   return (
     <div className="overflow-x-auto rounded-b-2xl border-t border-slate-200">
-      <div className="min-w-[760px]">
+      <div className="min-w-[680px] md:min-w-[760px]">
         <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
           {DIAS_CURTOS.map((dia, indice) => (
             <div
@@ -275,14 +320,15 @@ function CalendarioMes({ mes, liberados, itensDoDia, coresRegiao, onDetalhe }) {
         </div>
         <div className="grid grid-cols-7 gap-px bg-slate-200">
           {celulas.map((ms, indice) => {
-            if (ms == null) return <div key={`vazio-${indice}`} className="min-h-28 bg-slate-50/70" />;
+            if (ms == null) return <div key={`vazio-${indice}`} className="min-h-24 bg-slate-50/70 md:min-h-28" />;
             const data = new Date(ms);
             const chave = data.toISOString().slice(0, 10);
             const dia = porChave.get(chave) ?? null;
             const ehHoje = chave === hoje;
             const itensDia = itensDoDia(chave);
+            const agendaDia = agendaDoDia(chave);
             return (
-              <div key={chave} className={`min-h-28 p-1.5 ${dia ? "bg-white" : "bg-slate-50/80"}`}>
+              <div key={chave} className={`min-h-24 p-1 md:min-h-28 md:p-1.5 ${dia ? "bg-white" : "bg-slate-50/80"}`}>
                 <div className="flex items-center justify-between gap-1">
                   <span
                     className={`text-[12px] font-black tabular-nums ${
@@ -297,6 +343,9 @@ function CalendarioMes({ mes, liberados, itensDoDia, coresRegiao, onDetalhe }) {
                     </span>
                   )}
                 </div>
+                {agendaDia.length > 0 && (
+                  <AgendaDoDia eventos={agendaDia} compacto limite={2} className="mt-1" />
+                )}
                 <div className="mt-1 grid gap-1">
                   {itensDia.map((item) => (
                     <button
@@ -336,7 +385,22 @@ function CalendarioMes({ mes, liberados, itensDoDia, coresRegiao, onDetalhe }) {
 
 // Grade principal: meses → dias liberados × departamentos.
 // podeSolicitar: ids de departamentos onde a sala pode pedir data (vazio para o setor).
-export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicitar = [], regiaoAtual = null, regioes = [] }) {
+// agendaPai: eventos que o setor/ministério já tem nos dias do programa.
+// podeAdicionar: o criador do programa pode lançar datas direto para as congregações.
+export function GradeSolicitacoes({
+  grade,
+  programId,
+  roomId = null,
+  podeSolicitar = [],
+  regiaoAtual = null,
+  regioes = [],
+  agendaPai = [],
+  filhos = [],
+  podeAdicionar = false,
+  inicio = "",
+  fim = "",
+  liberadas = [],
+}) {
   const router = useRouter();
   const [densidade, setDensidade] = useState("confortavel");
   const [visao, setVisao] = useState("grade");
@@ -347,6 +411,21 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
   const [detalhe, setDetalhe] = useState(null);
   const [aberto, setAberto] = useState(null);
   const [fechadas, setFechadas] = useState([]);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [adicionando, setAdicionando] = useState(false);
+  const [adicionandoCelula, setAdicionandoCelula] = useState(null);
+
+  // No celular a lista é bem mais fácil de usar do que a tabela larga.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      setDensidade("lista");
+    }
+  }, []);
+
+  const agendaDoDia = useMemo(() => {
+    const mapa = agendaPorDia(agendaPai);
+    return (chave) => mapa.get(chave) ?? [];
+  }, [agendaPai]);
 
   const coresRegiao = grade.coresRegiao ?? {};
   const listaRegioes = useMemo(() => {
@@ -371,7 +450,9 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
   const departamentos = depsSel.length
     ? grade.departamentos.filter((d) => depsSel.includes(d.id))
     : grade.departamentos;
-  const temFiltro = regioesSel.length + depsSel.length + statusSel.length + (busca.trim() ? 1 : 0) > 0;
+  const totalFiltros =
+    regioesSel.length + depsSel.length + statusSel.length + (busca.trim() ? 1 : 0);
+  const temFiltro = totalFiltros > 0;
 
   function limpar() {
     setRegioesSel([]);
@@ -436,98 +517,190 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
     );
   }
 
+  // O pai adiciona a data ali mesmo, na célula do dia/departamento.
+  function renderAdicionar(chave, diaChave, departamento, compacto = false, sempreVisivel = false) {
+    if (!podeAdicionar || filhos.length === 0) return null;
+    if (adicionandoCelula === chave) {
+      return (
+        <FormAdicionarDataRapida
+          programId={programId}
+          filhos={filhos}
+          departamento={departamento}
+          departamentos={grade.departamentos}
+          dia={diaChave}
+          onCancelar={() => setAdicionandoCelula(null)}
+          onConcluido={() => {
+            setAdicionandoCelula(null);
+            router.refresh();
+          }}
+        />
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => setAdicionandoCelula(chave)}
+        title="Adicionar esta data para uma sala filha"
+        className={`rounded-lg border border-dashed border-emerald-300 bg-emerald-50/60 font-bold text-emerald-700 transition hover:bg-emerald-100 ${
+          compacto ? "px-1 py-0.5 text-[10px]" : "px-2 py-1.5 text-[11px]"
+        } ${sempreVisivel ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100"}`}
+      >
+        + Adicionar data
+      </button>
+    );
+  }
+
   return (
-    <div className="grid gap-3">
-      <div className="sticky top-0 z-40 -mx-1 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/95 px-3 py-2 shadow-sm backdrop-blur">
-        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-          {VISOES.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => setVisao(v.id)}
-              aria-pressed={visao === v.id}
-              className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition ${
-                visao === v.id ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              {v.rotulo}
-            </button>
-          ))}
-        </div>
-        {visao === "grade" && (
+    <div className="grid min-w-0 gap-3">
+      <div className="sticky top-0 z-40 -mx-1 rounded-xl border border-slate-200 bg-slate-50/95 shadow-sm backdrop-blur">
+        <div className="flex flex-wrap items-center gap-2 px-2 py-2 sm:px-3">
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-            {DENSIDADES.map((d) => (
+            {VISOES.map((v) => (
               <button
-                key={d.id}
+                key={v.id}
                 type="button"
-                onClick={() => setDensidade(d.id)}
-                aria-pressed={densidade === d.id}
+                onClick={() => setVisao(v.id)}
+                aria-pressed={visao === v.id}
                 className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition ${
-                  densidade === d.id ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"
+                  visao === v.id ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-900"
                 }`}
               >
-                {d.rotulo}
+                {v.rotulo}
               </button>
             ))}
           </div>
-        )}
-        {listaRegioes.length > 0 && (
-          <div className="flex flex-wrap gap-1 border-l border-slate-200 pl-2">
-            {listaRegioes.map((r) => (
-              <ChipFiltro
-                key={r}
-                cor={coresRegiao[r]}
-                ativo={regioesSel.includes(r)}
-                onClick={() => alternar(regioesSel, setRegioesSel, r)}
+          {visao === "grade" && (
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+              {DENSIDADES.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => setDensidade(d.id)}
+                  aria-pressed={densidade === d.id}
+                  className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition ${
+                    densidade === d.id ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {d.rotulo}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            {podeAdicionar && filhos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setAdicionando(true)}
+                className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-sm transition hover:bg-indigo-700"
               >
-                {r}
-              </ChipFiltro>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap gap-1 border-l border-slate-200 pl-2">
-          {grade.departamentos.map((d) => (
-            <ChipFiltro key={d.id} ativo={depsSel.includes(d.id)} onClick={() => alternar(depsSel, setDepsSel, d.id)}>
-              {d.name}
-            </ChipFiltro>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-1 border-l border-slate-200 pl-2">
-          {Object.entries(ROTULO_STATUS).map(([status, rotulo]) => (
-            <ChipFiltro
-              key={status}
-              cor={COR_STATUS[status]}
-              ativo={statusSel.includes(status)}
-              onClick={() => alternar(statusSel, setStatusSel, status)}
+                + Adicionar data
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setFiltrosAbertos((v) => !v)}
+              aria-expanded={filtrosAbertos}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition md:hidden ${
+                filtrosAbertos || temFiltro
+                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
             >
-              {rotulo}
-            </ChipFiltro>
-          ))}
+              Filtros
+              {temFiltro && (
+                <span className="rounded-full bg-indigo-600 px-1.5 py-px text-[9px] text-white">
+                  {totalFiltros}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
-        <input
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar congregação…"
-          className="ml-auto w-44 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-indigo-300"
-        />
-        {temFiltro && (
-          <button type="button" onClick={limpar} className="text-[11px] font-bold text-slate-500 hover:text-slate-900">
-            Limpar
-          </button>
-        )}
+
+        <div
+          className={`${filtrosAbertos ? "grid" : "hidden"} gap-2 border-t border-slate-200 px-2 py-2 md:flex md:flex-wrap md:items-center md:px-3 md:py-1.5`}
+        >
+          {listaRegioes.length > 0 && (
+            <div className="grid gap-1 md:flex md:items-center md:gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 md:hidden">
+                Região
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {listaRegioes.map((r) => (
+                  <ChipFiltro
+                    key={r}
+                    cor={coresRegiao[r]}
+                    ativo={regioesSel.includes(r)}
+                    onClick={() => alternar(regioesSel, setRegioesSel, r)}
+                  >
+                    {r}
+                  </ChipFiltro>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="grid gap-1 md:flex md:items-center md:gap-1 md:border-l md:border-slate-200 md:pl-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 md:hidden">
+              Departamento
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {grade.departamentos.map((d) => (
+                <ChipFiltro key={d.id} ativo={depsSel.includes(d.id)} onClick={() => alternar(depsSel, setDepsSel, d.id)}>
+                  {d.name}
+                </ChipFiltro>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-1 md:flex md:items-center md:gap-1 md:border-l md:border-slate-200 md:pl-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 md:hidden">
+              Situação
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(ROTULO_STATUS).map(([status, rotulo]) => (
+                <ChipFiltro
+                  key={status}
+                  cor={COR_STATUS[status]}
+                  ativo={statusSel.includes(status)}
+                  onClick={() => alternar(statusSel, setStatusSel, status)}
+                >
+                  {rotulo}
+                </ChipFiltro>
+              ))}
+            </div>
+          </div>
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar sala…"
+            className="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-indigo-300 md:ml-auto md:w-44"
+          />
+          {temFiltro && (
+            <button
+              type="button"
+              onClick={limpar}
+              className="justify-self-start rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-900 md:border-0 md:bg-transparent md:px-0 md:py-0"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
       </div>
 
       <Legenda />
 
-      <div className="grid gap-4">
+      <div className="grid min-w-0 gap-4">
         {grade.meses.map((mes) => {
           const fechado = fechadas.includes(mes.chave);
           const dias = temFiltro
-            ? mes.dias.filter((dia) => itensDoDia(dia.chave).length > 0 || (roomId && podeSolicitar.length > 0))
+            ? mes.dias.filter(
+                (dia) =>
+                  itensDoDia(dia.chave).length > 0 ||
+                  agendaDoDia(dia.chave).length > 0 ||
+                  (roomId && podeSolicitar.length > 0),
+              )
             : mes.dias;
           if (dias.length === 0) return null;
           return (
-            <section key={mes.chave} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section key={mes.chave} className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <CabecalhoMes
                 mes={mes}
                 fechado={fechado}
@@ -540,6 +713,7 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
                       mes={mes}
                       liberados={mes.dias}
                       itensDoDia={itensDoDia}
+                      agendaDoDia={agendaDoDia}
                       coresRegiao={coresRegiao}
                       onDetalhe={setDetalhe}
                     />
@@ -566,6 +740,7 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
                               <span className="text-[11px] text-slate-500 tabular-nums">{itensDia.length}</span>
                             </div>
                             <div className="mt-2 grid gap-1.5">
+                              <AgendaDoDia eventos={agendaDoDia(dia.chave)} className="mb-0.5" />
                               {itensDia.map((item) => (
                                 <div key={item.id}>
                                   <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
@@ -582,6 +757,11 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
                                   .map((dep) =>
                                     renderPedido(`${dia.chave}|${dep.id}`, dep, dia, false, true),
                                   )}
+                              </div>
+                            )}
+                            {podeAdicionar && filhos.length > 0 && (
+                              <div className="mt-2">
+                                {renderAdicionar(dia.chave, dia.chave, null, false, true)}
                               </div>
                             )}
                           </div>
@@ -636,6 +816,12 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
                                     hoje
                                   </span>
                                 )}
+                                <AgendaDoDia
+                                  eventos={agendaDoDia(dia.chave)}
+                                  compacto
+                                  limite={2}
+                                  className="mt-1"
+                                />
                               </th>
                               {departamentos.map((dep) => {
                                 const chave = `${dia.chave}|${dep.id}`;
@@ -650,6 +836,7 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
                                       {renderCartoes(itensCelula, densidade === "compacto")}
                                       {podePedir &&
                                         renderPedido(chave, dep, dia, densidade === "compacto", false)}
+                                      {renderAdicionar(chave, dia.chave, dep, densidade === "compacto", false)}
                                     </div>
                                   </td>
                                 );
@@ -668,6 +855,24 @@ export function GradeSolicitacoes({ grade, programId, roomId = null, podeSolicit
       </div>
 
       {detalhe && <DetalheSolicitacao item={detalhe} onFechar={() => setDetalhe(null)} />}
+
+      {adicionando && (
+        <Modal titulo="Adicionar data para uma sala filha" onFechar={() => setAdicionando(false)} largura="max-w-lg">
+          <FormAdicionarData
+            programId={programId}
+            filhos={filhos}
+            departamentos={grade.departamentos}
+            inicio={inicio}
+            fim={fim}
+            liberadas={liberadas}
+            onCancelar={() => setAdicionando(false)}
+            onConcluido={() => {
+              setAdicionando(false);
+              router.refresh();
+            }}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

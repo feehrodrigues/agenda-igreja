@@ -16,15 +16,13 @@ function diaDoCalendario(data) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// "forte": mesma região no mesmo dia (não deve acontecer).
-// "aviso": regiões diferentes no mesmo dia (aceitável, apenas informar).
+// Qualquer festividade no mesmo dia é apenas um aviso — inclusive na mesma
+// região. Quem decide se aceita é o pai, com os critérios do programa.
 // "nenhum": sem choque de dia.
 export function classificarConflito(solicitacao, existente) {
   if (!solicitacao || !existente) return "nenhum";
   if (diaDoCalendario(solicitacao.start) !== diaDoCalendario(existente.start)) return "nenhum";
-  const mesmaRegiao =
-    solicitacao.regionId != null && solicitacao.regionId === existente.regionId;
-  return mesmaRegiao ? "forte" : "aviso";
+  return "aviso";
 }
 
 export function encontrarConflitos(solicitacao, festividades) {

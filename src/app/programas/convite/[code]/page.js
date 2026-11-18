@@ -4,15 +4,17 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AtualizacaoAutomatica, GradeSolicitacoes, ROTULO_STATUS } from "../../painel";
 import { FormDepartamentos, FormEntrarPrograma } from "../../formularios";
+import { CabecalhoPrograma } from "../../CabecalhoPrograma";
 import { montarGrade, solicitacoesDoPrograma } from "@/lib/festividades/grade";
-import { congregacoesAbaixo } from "@/lib/festividades/salas";
+import { carregarAgendaDaSala } from "@/lib/festividades/agenda";
+import { filhosDiretos } from "@/lib/festividades/salas";
 
 const prisma = new PrismaClient();
 const ABAS = [
   { id: "grade", rotulo: "Grade" },
-  { id: "minhas", rotulo: "Minhas solicitações" },
+  { id: "minhas", rotulo: "Meus pedidos" },
   { id: "aprovadas", rotulo: "Festividades aprovadas" },
-  { id: "configuracoes", rotulo: "Minha congregação" },
+  { id: "configuracoes", rotulo: "Minha sala" },
 ];
 
 const fmtData = (d) => new Date(d).toLocaleDateString("pt-BR", { timeZone: "UTC" });
@@ -41,19 +43,16 @@ export default async function ConvitePrograma({ params, searchParams }) {
   });
   if (!programa) redirect("/dashboard");
 
-  // Só congregações participam do programa.
-  programa.children = programa.children.filter((c) => c.room.type === "congregacao");
-
   let roomId = roomIdParam;
-  // Congregações abaixo do setor/ministerio (o convite é para elas).
+  // Salas filhas do criador do programa (setores ou congregações).
   const todasSalas = await prisma.room.findMany({
     select: { id: true, name: true, type: true, parentId: true },
   });
-  const idsCongregacoes = congregacoesAbaixo(todasSalas, programa.parentRoomId).map((s) => s.id);
+  const idsFilhos = filhosDiretos(todasSalas, programa.parentRoomId).map((s) => s.id);
 
   if (!roomId) {
     const minhasSalas = await prisma.member.findMany({
-      where: { userId, roomId: { in: idsCongregacoes } },
+      where: { userId, roomId: { in: idsFilhos } },
       select: { roomId: true },
     });
     const dentroDoPrograma = minhasSalas.filter((s) =>
@@ -76,6 +75,12 @@ export default async function ConvitePrograma({ params, searchParams }) {
 
   const solicitacoes = solicitacoesDoPrograma(programa);
   const grade = montarGrade({ programa, solicitacoes, idSalaAtual: roomId });
+  const agendaPai = await carregarAgendaDaSala(
+    prisma,
+    programa.parentRoomId,
+    programa.startsAt,
+    programa.endsAt,
+  );
   const minhas = programa.requests.filter((r) => r.roomId === roomId);
   const aprovadas = programa.requests.filter((r) => r.status === "aprovada");
   const abaAtiva = ABAS.some((a) => a.id === aba) ? aba : "grade";
@@ -84,38 +89,36 @@ export default async function ConvitePrograma({ params, searchParams }) {
   const prazoPassou = programa.deadline && new Date(programa.deadline) < new Date();
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 pb-24 md:p-8 md:pb-24 font-sans text-slate-900">
+    <div className="min-h-screen bg-slate-50 pb-16 font-sans text-slate-900">
       <AtualizacaoAutomatica />
-      <div className="max-w-7xl mx-auto grid gap-5">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <Link href={`/dashboard/${sala.slug}?aba=festividades`} className="text-sm font-bold text-blue-600 hover:underline">
-              ← {sala.name}
-            </Link>
-            <h1 className="text-2xl font-black mt-1">{programa.name}</h1>
+      <CabecalhoPrograma sala={sala} titulo="Programa" />
+      <div className="mx-auto grid min-w-0 max-w-7xl gap-4 p-3 sm:p-4 md:gap-5 md:p-8">
+        <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-black sm:text-2xl">{programa.name}</h1>
             <p className="text-sm text-slate-500">
               {sala?.name} · {fmtData(programa.startsAt)} a {fmtData(programa.endsAt)}
               {programa.deadline && ` · prazo: ${fmtPrazo(programa.deadline)}`}
             </p>
           </div>
           {!filho && (
-            <span className="rounded-lg bg-amber-100 text-amber-800 px-3 py-2 text-sm font-bold">
-              Sua congregação ainda não entrou no programa
+            <span className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-800">
+              Sua sala ainda não entrou no programa
             </span>
           )}
           {prazoPassou && (
-            <span className="rounded-lg bg-slate-200 text-slate-700 px-3 py-2 text-sm font-bold">
+            <span className="rounded-lg bg-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
               Prazo encerrado
             </span>
           )}
         </header>
 
-        <nav className="flex gap-1 border-b overflow-x-auto">
+        <nav className="-mx-3 flex gap-1 overflow-x-auto border-b px-3 sm:-mx-4 sm:px-4 md:mx-0 md:px-0">
           {ABAS.map((a) => (
             <Link
               key={a.id}
               href={`/programas/convite/${code}?roomId=${roomId}&aba=${a.id}`}
-              className={`px-4 py-2 text-sm font-bold whitespace-nowrap border-b-2 -mb-px ${
+              className={`px-3 py-2 text-sm font-bold whitespace-nowrap border-b-2 -mb-px sm:px-4 ${
                 abaAtiva === a.id
                   ? "border-blue-600 text-blue-700"
                   : "border-transparent text-slate-500 hover:text-slate-900"
@@ -133,7 +136,7 @@ export default async function ConvitePrograma({ params, searchParams }) {
           <>
             {filho && podeSolicitar.length === 0 && (
               <p className="text-sm text-amber-700">
-                Escolha seus departamentos na aba “Minha congregação” para poder pedir datas.
+                Escolha seus departamentos na aba “Minha sala” para poder pedir datas.
               </p>
             )}
             <GradeSolicitacoes
@@ -143,13 +146,14 @@ export default async function ConvitePrograma({ params, searchParams }) {
               podeSolicitar={podeSolicitar}
               regiaoAtual={filho?.region?.name ?? null}
               regioes={programa.regions}
+              agendaPai={agendaPai}
             />
           </>
         )}
 
         {abaAtiva === "minhas" && (
-          <section className="bg-white rounded-2xl border p-5 grid gap-3">
-            <h2 className="font-black">Pedidos da minha congregação</h2>
+          <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:p-5">
+            <h2 className="font-black">Pedidos da minha sala</h2>
             {minhas.length === 0 && <p className="text-sm text-slate-500">Nenhum pedido ainda. Use a grade para pedir uma data.</p>}
             {minhas.map((r) => (
               <div key={r.id} className="border rounded-xl px-4 py-3 flex flex-wrap justify-between gap-2">
@@ -164,7 +168,7 @@ export default async function ConvitePrograma({ params, searchParams }) {
         )}
 
         {abaAtiva === "aprovadas" && (
-          <section className="bg-white rounded-2xl border p-5 grid gap-3">
+          <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:p-5">
             <h2 className="font-black">Festividades aprovadas</h2>
             {aprovadas.length === 0 && <p className="text-sm text-slate-500">Nenhuma festividade aprovada ainda.</p>}
             {aprovadas.map((r) => (
@@ -179,14 +183,14 @@ export default async function ConvitePrograma({ params, searchParams }) {
         )}
 
         {abaAtiva === "configuracoes" && (
-          <section className="bg-white rounded-2xl border p-5 grid gap-6 md:grid-cols-2">
+          <section className="grid gap-6 rounded-2xl border bg-white p-4 sm:p-5 md:grid-cols-2">
             {(!filho || !filho.region) && (
               <div className="grid gap-2">
                 <h2 className="font-black">{filho ? "Definir minha região" : "Entrar no programa"}</h2>
                 <p className="text-sm text-slate-500">
                   {filho
-                    ? "Sua congregação já está no programa. Falta só informar a região."
-                    : "Sua congregação ainda não está no programa."}
+                    ? "Sua sala já está no programa. Falta só informar a região."
+                    : "Sua sala ainda não está no programa."}
                 </p>
                 <FormEntrarPrograma
                   inviteCode={code}
@@ -218,12 +222,6 @@ export default async function ConvitePrograma({ params, searchParams }) {
           </section>
         )}
       </div>
-      <Link
-        href={`/dashboard/${sala.slug}?aba=festividades`}
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-lg hover:bg-slate-700"
-      >
-        ← Voltar
-      </Link>
     </div>
   );
 }

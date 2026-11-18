@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { STATUS, classificarConflito } from "@/lib/festividades/conflitos";
 import { chaveDia } from "@/lib/festividades/grade";
-import { congregacoesAbaixo } from "@/lib/festividades/salas";
+import { filhosDiretos } from "@/lib/festividades/salas";
 
 const prisma = new PrismaClient();
 
@@ -38,12 +38,14 @@ function parsePrazo(valor) {
   return parseData(texto);
 }
 
-// Congregações abaixo de uma sala (funciona para setor e para ministério).
-async function congregacoesAbaixoDoPai(parentRoomId) {
-  const todas = await prisma.room.findMany({
+// Filhos diretos de uma sala (setores ou congregações). O programa é sempre do
+// pai para os filhos; os netos não entram.
+async function filhosDiretosDoPai(parentRoomId) {
+  const todos = await prisma.room.findMany({
     select: { id: true, name: true, group: true, type: true, parentId: true },
+    orderBy: { name: "asc" },
   });
-  return congregacoesAbaixo(todas, parentRoomId);
+  return filhosDiretos(todos, parentRoomId);
 }
 
 // Tenta descobrir a região da congregação: pelo grupo da sala ou pelo prefixo
@@ -100,10 +102,9 @@ async function solicitacoesAtivasDoPrograma(programId) {
   }));
 }
 
-// Separa choques fortes (mesma região, mesmo dia) de avisos (regiões diferentes).
+// Qualquer choque no mesmo dia é um aviso para o pai decidir; nada é bloqueado.
 // A mesma sala+departamento no mesmo dia é substituição, não conflito.
 function avaliarConflitos(candidata, existentes) {
-  const bloqueios = [];
   const avisos = [];
   const dia = chaveDia(candidata.start);
   for (const e of existentes) {
@@ -116,10 +117,52 @@ function avaliarConflitos(candidata, existentes) {
       continue;
     }
     const tipo = classificarConflito(candidata, e);
-    if (tipo === "forte") bloqueios.push(e);
-    if (tipo === "aviso") avisos.push(e);
+    if (tipo !== "nenhum") avisos.push(e);
   }
-  return { bloqueios, avisos };
+  return { avisos };
+}
+
+// Cria o evento da festividade na sala do filho e repassa para o pai e as demais
+// congregações do programa. Usado tanto na aprovação de um pedido quanto quando
+// o próprio pai adiciona a data para o filho.
+async function criarEventoDaFestividade(tx, { solicitacao, programa, nomeDepartamento, destinos }) {
+  const nomeCategoria = programa
+    ? `Festividade · ${programa.name}`
+    : "Confirmação avulsa";
+  const categoria = await tx.category.upsert({
+    where: { name_roomId: { name: nomeCategoria, roomId: solicitacao.roomId } },
+    update: {},
+    create: { name: nomeCategoria, color: "#7c3aed", roomId: solicitacao.roomId },
+  });
+
+  const evento = await tx.event.create({
+    data: {
+      title: solicitacao.title ?? nomeDepartamento ?? "Festividade",
+      description: programa
+        ? `Festividade aprovada · ${programa.name}`
+        : "Confirmação avulsa aprovada pelo setor",
+      start: solicitacao.start,
+      end: solicitacao.end,
+      roomId: solicitacao.roomId,
+      categoryId: categoria.id,
+      // getRoomEvents usa targetRooms para eventos de outras salas: sem isto,
+      // a festividade aprovada não aparece no setor nem nas demais congregações.
+      targetRooms: { connect: [...destinos].map((id) => ({ id })) },
+    },
+  });
+
+  if (destinos.size > 0) {
+    await tx.eventBroadcast.createMany({
+      data: [...destinos].map((toRoomId) => ({
+        eventId: evento.id,
+        fromRoomId: solicitacao.roomId,
+        toRoomId,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  return evento;
 }
 
 export async function criarPrograma(formData) {
@@ -128,12 +171,10 @@ export async function criarPrograma(formData) {
 
   const parentRoomId = String(formData.get("parentRoomId") ?? "");
   if (!parentRoomId || !(await ehGestor(userId, parentRoomId))) {
-    return { error: "Apenas gestores do setor podem criar programas." };
+    return { error: "Apenas gestores da sala podem criar programas." };
   }
   const salaPromotora = await prisma.room.findUnique({ where: { id: parentRoomId } });
-  if (!salaPromotora || !["setor", "ministerio"].includes(salaPromotora.type)) {
-    return { error: "A sala promotora precisa ser um setor ou ministério." };
-  }
+  if (!salaPromotora) return { error: "Sala promotora não encontrada." };
 
   const name = String(formData.get("name") ?? "").trim();
   const startsAt = parseData(formData.get("startsAt"));
@@ -150,8 +191,8 @@ export async function criarPrograma(formData) {
   if (regionNames.length === 0) return { error: "Informe ao menos uma região." };
   if (departmentNames.length === 0) return { error: "Informe ao menos um departamento." };
 
-  // Todas as congregações abaixo do setor/ministerio entram automaticamente.
-  const salasFilhas = await congregacoesAbaixoDoPai(parentRoomId);
+  // Todos os filhos diretos do setor/ministerio entram automaticamente.
+  const salasFilhas = await filhosDiretosDoPai(parentRoomId);
 
   let programa;
   try {
@@ -202,21 +243,21 @@ export async function criarPrograma(formData) {
   return { success: true, id: programa.id };
 }
 
-// Congregação entra no programa pelo código de convite.
+// Sala filha entra no programa pelo código de convite.
 export async function entrarNoPrograma(inviteCode, roomId, regionId) {
   const userId = await usuarioAtual();
   if (!userId) return { error: "Não autenticado." };
   if (!(await ehGestor(userId, roomId))) {
-    return { error: "Apenas o secretário ou administrador da congregação pode aderir." };
+    return { error: "Apenas o secretário ou administrador da sala filha pode aderir." };
   }
 
   const programa = await prisma.program.findUnique({ where: { inviteCode } });
   if (!programa) return { error: "Convite inválido." };
 
   const sala = await prisma.room.findUnique({ where: { id: roomId } });
-  const congregacoes = await congregacoesAbaixoDoPai(programa.parentRoomId);
-  if (!sala || !congregacoes.some((c) => c.id === sala.id)) {
-    return { error: "Esta congregação não pertence ao setor deste programa." };
+  const salasFilhas = await filhosDiretosDoPai(programa.parentRoomId);
+  if (!sala || !salasFilhas.some((c) => c.id === sala.id)) {
+    return { error: "Esta sala não é filha do criador deste programa." };
   }
 
   const regiao = await prisma.programRegion.findFirst({
@@ -234,7 +275,7 @@ export async function entrarNoPrograma(inviteCode, roomId, regionId) {
   return { success: true, programId: programa.id };
 }
 
-// Congregações criadas depois do programa entram com um clique.
+// Filhos criados depois do programa entram com um clique.
 export async function sincronizarCongregacoesDoPrograma(programId) {
   const userId = await usuarioAtual();
   if (!userId) return { error: "Não autenticado." };
@@ -248,15 +289,14 @@ export async function sincronizarCongregacoesDoPrograma(programId) {
   });
   if (!programa) return { error: "Programa não encontrado." };
   if (!(await ehGestor(userId, programa.parentRoomId))) {
-    return { error: "Apenas gestores do setor podem sincronizar." };
+    return { error: "Apenas gestores do pai podem sincronizar." };
   }
 
   const jaEntraram = programa.children.map((c) => c.roomId);
-  const congregacoes = await congregacoesAbaixoDoPai(programa.parentRoomId);
-  const idsValidos = new Set(congregacoes.map((s) => s.id));
+  const salasFilhas = await filhosDiretosDoPai(programa.parentRoomId);
+  const idsValidos = new Set(salasFilhas.map((s) => s.id));
 
-  // Limpa participantes que não são congregações (setores/ministérios que
-  // entraram por engano) ou que saíram da árvore do programa.
+  // Limpa participantes que deixaram de ser filhos diretos deste programa.
   const fora = jaEntraram.filter((roomId) => !idsValidos.has(roomId));
   if (fora.length > 0) {
     await prisma.programChild.deleteMany({
@@ -264,7 +304,7 @@ export async function sincronizarCongregacoesDoPrograma(programId) {
     });
   }
 
-  const salas = congregacoes.filter((s) => !jaEntraram.includes(s.id));
+  const salas = salasFilhas.filter((s) => !jaEntraram.includes(s.id));
   if (salas.length === 0) {
     revalidatePath(`/programas/${programId}`);
     return { success: true, adicionadas: 0, removidas: fora.length };
@@ -283,6 +323,46 @@ export async function sincronizarCongregacoesDoPrograma(programId) {
 
   revalidatePath(`/programas/${programId}`);
   return { success: true, adicionadas: salas.length, removidas: fora.length };
+}
+
+// O pai define a região de cada sala filha. Antes isso vinha do nome/grupo da
+// sala; agora quem conhece a divisão regional é o pai do programa.
+export async function definirRegiaoDoFilho(programId, roomId, regionId) {
+  const userId = await usuarioAtual();
+  if (!userId) return { error: "Não autenticado." };
+
+  const programa = await prisma.program.findUnique({
+    where: { id: programId },
+    select: { parentRoomId: true },
+  });
+  if (!programa) return { error: "Programa não encontrado." };
+  if (!(await ehGestor(userId, programa.parentRoomId))) {
+    return { error: "Apenas gestores do pai podem definir a região." };
+  }
+
+  const filho = await prisma.programChild.findUnique({
+    where: { programId_roomId: { programId, roomId } },
+  });
+  if (!filho) return { error: "Sala filha não está no programa." };
+
+  // Vazio/sem escolha = sala sem região definida.
+  const regiaoId = String(regionId ?? "").trim();
+  if (regiaoId) {
+    const regiao = await prisma.programRegion.findFirst({
+      where: { id: regiaoId, programId },
+      select: { id: true },
+    });
+    if (!regiao) return { error: "Região inválida para este programa." };
+  }
+
+  await prisma.programChild.update({
+    where: { id: filho.id },
+    data: { regionId: regiaoId || null },
+  });
+
+  revalidatePath(`/programas/${programId}`);
+  revalidatePath("/programas");
+  return { success: true };
 }
 
 // Define quais departamentos a congregação terá no programa.
@@ -344,7 +424,7 @@ export async function enviarSolicitacao(formData) {
       programa.releasedDays.map((d) => new Date(d.date).toISOString().slice(0, 10)),
     );
     if (!liberadas.has(chaveDia(start))) {
-      return { error: "Esta data não foi liberada pelo setor." };
+      return { error: "Esta data não foi liberada pelo pai." };
     }
   }
 
@@ -361,10 +441,7 @@ export async function enviarSolicitacao(formData) {
 
   const existentes = await solicitacoesAtivasDoPrograma(programId);
   const candidata = { roomId, departmentId, regionId: filho.regionId, start };
-  const { bloqueios, avisos } = avaliarConflitos(candidata, existentes);
-  if (bloqueios.length > 0) {
-    return { error: "Mesma região já tem festividade neste dia. Escolha outra data." };
-  }
+  const { avisos } = avaliarConflitos(candidata, existentes);
 
   // Só a versão do MESMO dia é substituída: o departamento pode ter vários dias abertos.
   const dia = chaveDia(start);
@@ -421,7 +498,7 @@ export async function enviarConfirmacaoAvulsa(formData) {
   if (!start || !end || end <= start) return { error: "Horário inválido." };
 
   const sala = await prisma.room.findUnique({ where: { id: roomId } });
-  if (!sala?.parentId) return { error: "Esta sala não está vinculada a um setor." };
+  if (!sala?.parentId) return { error: "Esta sala não tem um pai (setor ou ministério)." };
 
   await prisma.festivityRequest.create({
     data: {
@@ -454,7 +531,7 @@ export async function decidirSolicitacao(requestId, decisao, motivo) {
 
   const setorId = solicitacao.program?.parentRoomId ?? solicitacao.room.parentId;
   if (!setorId || !(await ehGestor(userId, setorId))) {
-    return { error: "Apenas gestores do setor podem decidir." };
+    return { error: "Apenas gestores do pai podem decidir." };
   }
 
   if (decisao === "rejeitar") {
@@ -472,19 +549,7 @@ export async function decidirSolicitacao(requestId, decisao, motivo) {
   }
 
   if (solicitacao.programId) {
-    const existentes = await solicitacoesAtivasDoPrograma(solicitacao.programId);
-    const atual = existentes.find((e) => e.id === requestId);
-    const candidata = {
-      id: requestId,
-      roomId: solicitacao.roomId,
-      departmentId: solicitacao.departmentId,
-      regionId: atual?.regionId ?? null,
-      start: solicitacao.start,
-    };
-    const { bloqueios } = avaliarConflitos(candidata, existentes);
-    if (bloqueios.length > 0) {
-      return { error: "Conflito forte com outra festividade da mesma região neste dia." };
-    }
+    // Choques no mesmo dia são apenas avisos: o pai aprova com os critérios dele.
   }
 
   const destinos = new Set([setorId]);
@@ -511,41 +576,12 @@ export async function decidirSolicitacao(requestId, decisao, motivo) {
       });
     }
 
-    const nomeCategoria = solicitacao.program
-      ? `Festividade · ${solicitacao.program.name}`
-      : "Confirmação avulsa";
-    const categoria = await tx.category.upsert({
-      where: { name_roomId: { name: nomeCategoria, roomId: solicitacao.roomId } },
-      update: {},
-      create: { name: nomeCategoria, color: "#7c3aed", roomId: solicitacao.roomId },
+    const evento = await criarEventoDaFestividade(tx, {
+      solicitacao,
+      programa: solicitacao.program,
+      nomeDepartamento: solicitacao.department?.name,
+      destinos,
     });
-
-    const evento = await tx.event.create({
-      data: {
-        title: solicitacao.title ?? solicitacao.department?.name ?? "Festividade",
-        description: solicitacao.program
-          ? `Festividade aprovada · ${solicitacao.program.name}`
-          : "Confirmação avulsa aprovada pelo setor",
-        start: solicitacao.start,
-        end: solicitacao.end,
-        roomId: solicitacao.roomId,
-        categoryId: categoria.id,
-        // getRoomEvents usa targetRooms para eventos de outras salas: sem isto,
-        // a festividade aprovada não aparece no setor nem nas demais congregações.
-        targetRooms: { connect: [...destinos].map((id) => ({ id })) },
-      },
-    });
-
-    if (destinos.size > 0) {
-      await tx.eventBroadcast.createMany({
-        data: [...destinos].map((toRoomId) => ({
-          eventId: evento.id,
-          fromRoomId: solicitacao.roomId,
-          toRoomId,
-        })),
-        skipDuplicates: true,
-      });
-    }
 
     await tx.festivityRequest.update({
       where: { id: requestId },
@@ -562,6 +598,135 @@ export async function decidirSolicitacao(requestId, decisao, motivo) {
   return { success: true };
 }
 
+// O pai (criador do programa) adiciona a data diretamente para um filho.
+// Nasce já aprovada: cria a festividade na agenda da congregação e repassa o
+// evento para o setor e para as demais congregações do programa.
+export async function adicionarDataParaFilho(formData) {
+  const userId = await usuarioAtual();
+  if (!userId) return { error: "Não autenticado." };
+
+  const programId = String(formData.get("programId") ?? "");
+  const roomId = String(formData.get("roomId") ?? "");
+  const departmentId = String(formData.get("departmentId") ?? "");
+  const title = String(formData.get("title") ?? "").trim() || null;
+  const start = parseData(formData.get("start"));
+  const end = parseData(formData.get("end"));
+
+  if (!start || !end || end <= start) return { error: "Horário inválido." };
+
+  const programa = await prisma.program.findUnique({
+    where: { id: programId },
+    include: { releasedDays: true, departments: true },
+  });
+  if (!programa) return { error: "Programa não encontrado." };
+  if (!(await ehGestor(userId, programa.parentRoomId))) {
+    return { error: "Apenas gestores do pai podem adicionar datas." };
+  }
+
+  // Comparação por dia: o fim do período é meia-noite, então o último dia
+  // inteiro continua valendo (19h–21h, por exemplo).
+  const inicioPeriodo = new Date(programa.startsAt).toISOString().slice(0, 10);
+  const fimPeriodo = new Date(programa.endsAt).toISOString().slice(0, 10);
+  const diaInicio = chaveDia(start);
+  const diaFim = chaveDia(end);
+  if (diaInicio < inicioPeriodo || diaFim > fimPeriodo) {
+    return { error: "A data está fora do período do programa." };
+  }
+
+  if (programa.releasedDays.length > 0) {
+    const liberadas = new Set(
+      programa.releasedDays.map((d) => new Date(d.date).toISOString().slice(0, 10)),
+    );
+    if (!liberadas.has(diaInicio)) {
+      return { error: "Esta data não foi liberada pelo pai." };
+    }
+  }
+
+  const filho = await prisma.programChild.findUnique({
+    where: { programId_roomId: { programId, roomId } },
+  });
+  if (!filho) return { error: "A sala escolhida não participa do programa." };
+
+  const departamento = programa.departments.find((d) => d.id === departmentId);
+  if (!departamento?.active) return { error: "Este departamento não está disponível." };
+
+  const existentes = await solicitacoesAtivasDoPrograma(programId);
+  const { avisos } = avaliarConflitos(
+    { roomId, departmentId, regionId: filho.regionId, start },
+    existentes,
+  );
+
+  // Mesma congregação + departamento + dia: a data nova substitui a anterior.
+  const anteriores = await prisma.festivityRequest.findMany({
+    where: { programId, roomId, departmentId },
+  });
+  const doMesmoDia = anteriores.filter((r) => chaveDia(r.start) === diaInicio);
+  const aprovadaAnterior = doMesmoDia.find((r) => r.status === STATUS.APROVADA) ?? null;
+  const pendentes = doMesmoDia.filter((r) => ABERTAS.includes(r.status));
+
+  const destinos = new Set([programa.parentRoomId]);
+  const filhos = await prisma.programChild.findMany({
+    where: { programId },
+    select: { roomId: true },
+  });
+  filhos.forEach((f) => destinos.add(f.roomId));
+  destinos.delete(roomId);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (pendentes.length > 0) {
+        await tx.festivityRequest.updateMany({
+          where: { id: { in: pendentes.map((p) => p.id) } },
+          data: { status: STATUS.SUBSTITUIDA, supersedesId: null },
+        });
+      }
+      if (aprovadaAnterior) {
+        if (aprovadaAnterior.eventId) {
+          await tx.event.delete({ where: { id: aprovadaAnterior.eventId } });
+        }
+        await tx.festivityRequest.update({
+          where: { id: aprovadaAnterior.id },
+          data: { status: STATUS.SUBSTITUIDA, supersedesId: null },
+        });
+      }
+
+      const solicitacao = await tx.festivityRequest.create({
+        data: {
+          title,
+          start,
+          end,
+          status: STATUS.APROVADA,
+          requestedById: userId,
+          decidedById: userId,
+          decidedAt: new Date(),
+          programId,
+          departmentId,
+          roomId,
+        },
+      });
+
+      const evento = await criarEventoDaFestividade(tx, {
+        solicitacao,
+        programa,
+        nomeDepartamento: departamento.name,
+        destinos,
+      });
+
+      await tx.festivityRequest.update({
+        where: { id: solicitacao.id },
+        data: { eventId: evento.id },
+      });
+    });
+  } catch (e) {
+    console.error("adicionarDataParaFilho:", e);
+    return { error: "Não foi possível adicionar a data. Tente novamente." };
+  }
+
+  revalidatePath(`/programas/${programId}`);
+  revalidatePath("/programas");
+  return { success: true };
+}
+
 // Setor escolhe a dedo quais dias ficam liberados para as congregações pedirem.
 // Lista vazia = todos os dias do período ficam liberados.
 export async function salvarDatasLiberadas(programId, datas) {
@@ -574,7 +739,7 @@ export async function salvarDatasLiberadas(programId, datas) {
   });
   if (!programa) return { error: "Programa não encontrado." };
   if (!(await ehGestor(userId, programa.parentRoomId))) {
-    return { error: "Apenas gestores do setor podem liberar datas." };
+    return { error: "Apenas gestores do pai podem liberar datas." };
   }
 
   const inicio = new Date(programa.startsAt).toISOString().slice(0, 10);

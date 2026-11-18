@@ -9,11 +9,11 @@ export default async function ProgramasPage() {
   const { userId } = await auth();
   if (!userId) redirect("/");
 
-  // Prioriza salas que podem promover programas (setor/ministerio).
+  // Prioriza salas que podem promover programas (têm filhos diretos).
   const sala =
     (await prisma.room.findFirst({
       where: {
-        type: { in: ["setor", "ministerio"] },
+        children: { some: {} },
         members: { some: { userId } },
       },
       orderBy: { name: "asc" },

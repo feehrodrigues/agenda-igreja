@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import {
+  adicionarDataParaFilho,
   criarPrograma,
+  definirRegiaoDoFilho,
   enviarConfirmacaoAvulsa,
   enviarSolicitacao,
   entrarNoPrograma,
@@ -45,7 +47,7 @@ export function BotaoCopiar({ caminho, rotulo = "Copiar link" }) {
   );
 }
 
-// Adiciona ao programa as congregações do setor que ainda não estão nele.
+// Adiciona ao programa as salas filhas que ainda não estão nele.
 export function BotaoSincronizarCongregacoes({ programId }) {
   const [estado, setEstado] = useState(null);
   const [pending, startTransition] = useTransition();
@@ -60,13 +62,13 @@ export function BotaoSincronizarCongregacoes({ programId }) {
           startTransition(async () => setEstado(await sincronizarCongregacoesDoPrograma(programId)))
         }
       >
-        {pending ? "Sincronizando…" : "Sincronizar congregações"}
+        {pending ? "Sincronizando…" : "Sincronizar salas filhas"}
       </button>
       {estado?.error && <span className="text-sm font-bold text-red-600">{estado.error}</span>}
       {estado?.success && (
         <span className="text-sm font-bold text-green-700">
           {estado.adicionadas === 0 && (estado.removidas ?? 0) === 0
-            ? "As congregações já estão em dia."
+            ? "As salas filhas já estão em dia."
             : [
                 estado.adicionadas > 0 ? `${estado.adicionadas} incluída(s)` : null,
                 estado.removidas > 0 ? `${estado.removidas} removida(s)` : null,
@@ -107,8 +109,7 @@ export function FormCriarPrograma({ salas }) {
       </label>
       <label className="text-xs font-bold text-slate-600">Título do programa
         <input name="name" required placeholder="Ex.: o título que o setor escolher" className={campo} />
-      </label>
-      <div className="grid grid-cols-2 gap-3">
+      </label>      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="text-xs font-bold text-slate-600">Início
           <input name="startsAt" type="date" required className={campo} />
         </label>
@@ -207,6 +208,45 @@ export function FormEntrarPrograma({ inviteCode, roomId, regioes, rotulo = "Ader
   );
 }
 
+// O pai define a região da sala filha direto na lista de participantes.
+export function SeletorRegiaoDoFilho({ programId, roomId, regioes = [], atual = "" }) {
+  const [valor, setValor] = useState(atual ?? "");
+  const [estado, setEstado] = useState(null);
+  const [pending, startTransition] = useTransition();
+
+  function trocar(e) {
+    const novo = e.target.value;
+    setValor(novo);
+    startTransition(async () => {
+      setEstado(await definirRegiaoDoFilho(programId, roomId, novo));
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={valor}
+        onChange={trocar}
+        disabled={pending}
+        aria-label="Região da sala filha"
+        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+      >
+        <option value="">Sem região</option>
+        {regioes.map((r) => (
+          <option key={r.id} value={r.id}>{r.name}</option>
+        ))}
+      </select>
+      {pending && <span className="text-xs font-bold text-slate-400">Salvando…</span>}
+      {!pending && estado?.error && (
+        <span className="text-xs font-bold text-red-600">{estado.error}</span>
+      )}
+      {!pending && estado?.success && (
+        <span className="text-xs font-bold text-emerald-600">Salvo</span>
+      )}
+    </div>
+  );
+}
+
 // Congregação escolhe quais departamentos terá no programa.
 export function FormDepartamentos({ programId, roomId, departamentos, selecionados }) {
   const [marcados, setMarcados] = useState(new Set(selecionados));
@@ -272,8 +312,8 @@ export function FormSolicitacao({ programId, roomId, departamento, dataInicial =
     <form onSubmit={enviar} className="grid gap-2 border rounded-xl p-4 bg-white">
       <p className="font-bold text-slate-800">{departamento.name}</p>
       <input name="title" placeholder="Título (opcional)" className={campo} />
-      <div className="grid grid-cols-3 gap-2">
-        <input name="data" type="date" required defaultValue={dataInicial} className={campo} />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <input name="data" type="date" required defaultValue={dataInicial} className={`${campo} col-span-2 sm:col-span-1`} />
         <input name="inicio" type="time" defaultValue="19:00" required className={campo} />
         <input name="fim" type="time" defaultValue="21:00" required className={campo} />
       </div>
@@ -328,6 +368,224 @@ export function FormRapido({ programId, roomId, departamento, dia, onConcluido, 
         </button>
       </div>
       <Mensagem estado={estado} />
+    </form>
+  );
+}
+
+// Pai adiciona a data diretamente para uma congregação do programa.
+// Nasce aprovada e cai na agenda da congregação, do setor e das demais salas.
+export function FormAdicionarData({
+  programId,
+  filhos = [],
+  departamentos = [],
+  inicio = "",
+  fim = "",
+  liberadas = [],
+  onConcluido,
+  onCancelar,
+}) {
+  const [estado, setEstado] = useState(null);
+  const [pending, startTransition] = useTransition();
+  const [filhoId, setFilhoId] = useState(filhos[0]?.id ?? "");
+  const [departmentId, setDepartmentId] = useState(departamentos[0]?.id ?? "");
+
+  const chaveInicio = String(inicio).slice(0, 10);
+  const chaveFim = String(fim).slice(0, 10);
+  const listaDatas = liberadas.map((d) => String(d).slice(0, 10)).sort();
+
+  function enviar(e) {
+    e.preventDefault();
+    const dados = new FormData(e.currentTarget);
+    const formData = new FormData();
+    formData.set("programId", programId);
+    formData.set("roomId", String(dados.get("roomId") ?? ""));
+    formData.set("departmentId", String(dados.get("departmentId") ?? ""));
+    formData.set("title", String(dados.get("title") ?? ""));
+    formData.set("start", `${dados.get("data")}T${dados.get("inicio")}`);
+    formData.set("end", `${dados.get("data")}T${dados.get("fim")}`);
+    startTransition(async () => {
+      const r = await adicionarDataParaFilho(formData);
+      setEstado(r);
+      if (r.success) onConcluido?.(r);
+    });
+  }
+
+  return (
+    <form onSubmit={enviar} className="grid gap-3">
+      <p className="text-xs text-slate-500">
+        A data entra como aprovada na agenda da sala filha e aparece na grade para todos.
+      </p>
+
+      <label className="grid gap-1 text-xs font-bold text-slate-600">
+        Sala filha
+        <select
+          name="roomId"
+          required
+          value={filhoId}
+          onChange={(e) => setFilhoId(e.target.value)}
+          className={campo}
+        >
+          {filhos.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="grid gap-1 text-xs font-bold text-slate-600">
+        Departamento
+        <select
+          name="departmentId"
+          required
+          value={departmentId}
+          onChange={(e) => setDepartmentId(e.target.value)}
+          className={campo}
+        >
+          {departamentos.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="grid gap-1 text-xs font-bold text-slate-600">
+        Dia
+        <input
+          name="data"
+          type="date"
+          required
+          min={chaveInicio || undefined}
+          max={chaveFim || undefined}
+          list={listaDatas.length > 0 ? "datas-liberadas-pai" : undefined}
+          className={campo}
+        />
+        {listaDatas.length > 0 && (
+          <datalist id="datas-liberadas-pai">
+            {listaDatas.map((d) => (
+              <option key={d} value={d} />
+            ))}
+          </datalist>
+        )}
+      </label>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className="grid gap-1 text-xs font-bold text-slate-600">
+          Início
+          <input name="inicio" type="time" defaultValue="19:00" required className={campo} />
+        </label>
+        <label className="grid gap-1 text-xs font-bold text-slate-600">
+          Término
+          <input name="fim" type="time" defaultValue="21:00" required className={campo} />
+        </label>
+      </div>
+
+      <label className="grid gap-1 text-xs font-bold text-slate-600">
+        Título (opcional)
+        <input name="title" placeholder="Padrão: nome do departamento" className={campo} />
+      </label>
+
+      {listaDatas.length > 0 && (
+        <p className="text-[11px] text-slate-500">
+          Só as datas liberadas pelo pai podem ser usadas.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button disabled={pending || !filhos.length || !departamentos.length} className={botao}>
+          {pending ? "Adicionando…" : "Adicionar data"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancelar}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50"
+        >
+          Cancelar
+        </button>
+        <Mensagem estado={estado} />
+      </div>
+    </form>
+  );
+}
+
+// Adiciona a data direto na célula da grade (dia já definido). O pai escolhe só a
+// sala filha e o horário — mesma facilidade do pedido feito pela sala filha.
+export function FormAdicionarDataRapida({
+  programId,
+  filhos = [],
+  departamento = null,
+  departamentos = [],
+  dia,
+  onConcluido,
+  onCancelar,
+}) {
+  const [estado, setEstado] = useState(null);
+  const [pending, startTransition] = useTransition();
+  const [filhoId, setFilhoId] = useState(filhos[0]?.id ?? "");
+  const [depId, setDepId] = useState(departamento?.id ?? departamentos[0]?.id ?? "");
+
+  function enviar(e) {
+    e.preventDefault();
+    const dados = new FormData(e.currentTarget);
+    const formData = new FormData();
+    formData.set("programId", programId);
+    formData.set("roomId", String(dados.get("roomId") ?? ""));
+    formData.set("departmentId", String(departamento?.id ?? dados.get("departmentId") ?? ""));
+    formData.set("start", `${dia}T${dados.get("inicio")}`);
+    formData.set("end", `${dia}T${dados.get("fim")}`);
+    startTransition(async () => {
+      const r = await adicionarDataParaFilho(formData);
+      setEstado(r);
+      if (r.success) onConcluido?.(r);
+    });
+  }
+
+  const mini =
+    "w-full rounded border border-slate-300 px-1.5 py-1 text-[11px] outline-none focus:ring-2 focus:ring-emerald-300";
+
+  return (
+    <form onSubmit={enviar} className="grid gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50/70 p-1.5">
+      <select name="roomId" required value={filhoId} onChange={(e) => setFilhoId(e.target.value)} className={mini}>
+        {filhos.map((f) => (
+          <option key={f.id} value={f.id}>{f.name}</option>
+        ))}
+      </select>
+
+      {departamento ? (
+        <span className="truncate text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+          {departamento.name}
+        </span>
+      ) : (
+        <select name="departmentId" required value={depId} onChange={(e) => setDepId(e.target.value)} className={mini}>
+          {departamentos.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
+      )}
+
+      <div className="flex items-center gap-1">
+        <input name="inicio" type="time" defaultValue="19:00" required className={mini} />
+        <input name="fim" type="time" defaultValue="21:00" required className={mini} />
+      </div>
+
+      {estado?.error && <p className="text-[10px] font-bold text-red-600">{estado.error}</p>}
+
+      <div className="flex gap-1">
+        <button
+          disabled={pending || !filhos.length}
+          className="flex-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {pending ? "Adicionando…" : "Adicionar"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancelar}
+          className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+        >
+          Cancelar
+        </button>
+      </div>
     </form>
   );
 }

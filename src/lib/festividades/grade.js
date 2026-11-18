@@ -161,6 +161,16 @@ export function montarGrade({ programa, solicitacoes, idSalaAtual = null }) {
   return { dias, meses, coresRegiao, departamentos, solicitacoes: itens };
 }
 
+// Agrupa itens de agenda (já resumidos) por dia "YYYY-MM-DD" para a interface.
+export function agendaPorDia(agenda = []) {
+  const mapa = new Map();
+  for (const item of agenda) {
+    if (!mapa.has(item.dia)) mapa.set(item.dia, []);
+    mapa.get(item.dia).push(item);
+  }
+  return mapa;
+}
+
 // Converte as solicitações do Prisma (com sala, departamento e região da congregação) no formato de montarGrade.
 export function solicitacoesDoPrograma(programa) {
   const regiaoPorSala = Object.fromEntries(programa.children.map((c) => [c.roomId, c.region?.name ?? null]));

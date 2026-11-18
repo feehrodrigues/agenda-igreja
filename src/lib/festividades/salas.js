@@ -1,3 +1,9 @@
+// Filhos diretos de uma sala, qualquer que seja o tipo (setor ou congregação).
+// O programa é sempre do pai para os filhos: netos não entram.
+export function filhosDiretos(todas, parentRoomId) {
+  return todas.filter((sala) => sala.parentId === parentRoomId);
+}
+
 // Todas as congregações abaixo de uma sala (filhas, netas...), em qualquer
 // profundidade. Setores e ministérios entram na caminhada mas não na lista:
 // eles organizam o programa, não pedem datas.

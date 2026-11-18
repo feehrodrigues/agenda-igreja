@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { agendaPorDia } from "@/lib/festividades/grade";
 import { salvarDatasLiberadas } from "./actions";
 
 const DIAS_CURTOS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -47,11 +48,14 @@ function diasDaSemana(dias, semana) {
   });
 }
 
-function Celula({ chave, selecionado, usado, hoje, onClick }) {
+function Celula({ chave, selecionado, usado, hoje, eventos = [], onClick }) {
   const data = deChave(chave);
   const diaSemana = data.getUTCDay();
   const numero = data.getUTCDate();
-  const titulo = `${DIAS_LONGOS[diaSemana]}, ${numero} de ${MESES[data.getUTCMonth()].toLowerCase()}${usado ? " · já tem pedido" : ""}`;
+  const agendaTexto = eventos
+    .map((e) => `📌 ${e.titulo}${e.hora ? ` (${e.hora}${e.horaFim ? `–${e.horaFim}` : ""})` : ""}`)
+    .join(" · ");
+  const titulo = `${DIAS_LONGOS[diaSemana]}, ${numero} de ${MESES[data.getUTCMonth()].toLowerCase()}${usado ? " · já tem pedido" : ""}${agendaTexto ? `\nAgenda do pai: ${agendaTexto}` : ""}`;
 
   return (
     <button
@@ -59,7 +63,7 @@ function Celula({ chave, selecionado, usado, hoje, onClick }) {
       onClick={onClick}
       title={titulo}
       aria-pressed={selecionado}
-      className={`relative grid h-10 place-items-center rounded-lg border text-sm font-bold tabular-nums transition ${
+      className={`relative grid h-9 place-items-center rounded-lg border text-sm font-bold tabular-nums transition sm:h-10 ${
         selecionado
           ? "border-emerald-500 bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
           : diaSemana === 0 || diaSemana === 6
@@ -76,7 +80,72 @@ function Celula({ chave, selecionado, usado, hoje, onClick }) {
           aria-hidden="true"
         />
       )}
+      {eventos.length > 0 && (
+        <span
+          className={`absolute bottom-0.5 left-1/2 flex -translate-x-1/2 items-center gap-0.5`}
+          aria-hidden="true"
+        >
+          {eventos.slice(0, 3).map((evento) => (
+            <i
+              key={evento.id}
+              className={`block h-1 w-1 rounded-full ${selecionado ? "bg-white/90" : "bg-indigo-500"}`}
+            />
+          ))}
+          {eventos.length > 3 && (
+            <span className={`text-[7px] font-black ${selecionado ? "text-white/90" : "text-indigo-500"}`}>
+              +{eventos.length - 3}
+            </span>
+          )}
+        </span>
+      )}
     </button>
+  );
+}
+
+// Lista da agenda do pai no período, para decidir com precisão o que liberar.
+function AgendaDoPeriodo({ agenda, porDia }) {
+  if (agenda.length === 0) return null;
+  const dados = [...porDia.entries()].sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <details className="group rounded-2xl border border-indigo-200 bg-white">
+      <summary className="flex cursor-pointer select-none flex-wrap items-center gap-2 px-4 py-3">
+        <span className="font-black text-slate-900">📌 Agenda do pai no período</span>
+        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-indigo-800">
+          {agenda.length} {agenda.length === 1 ? "evento" : "eventos"}
+        </span>
+        <span className="text-xs text-slate-500">
+          O que já está marcado nestes dias — use para decidir o que liberar.
+        </span>
+        <span className="ml-auto text-sm text-slate-400 group-open:hidden">▸</span>
+        <span className="ml-auto hidden text-sm text-slate-400 group-open:inline">▾</span>
+      </summary>
+      <ul className="max-h-72 overflow-y-auto border-t border-indigo-100 px-4 py-3 text-sm">
+        {dados.map(([dia, eventos]) => (
+          <li key={dia} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-slate-100 py-1.5 last:border-0">
+            <span className="w-14 flex-none text-[11px] font-black uppercase tracking-wide text-slate-500 tabular-nums">
+              {dia.slice(8, 10)}/{dia.slice(5, 7)}
+            </span>
+            <span className="flex flex-1 flex-wrap gap-1">
+              {eventos.map((evento) => (
+                <span
+                  key={evento.id}
+                  className="inline-flex max-w-full items-center gap-1 rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[11px] font-bold text-indigo-800"
+                >
+                  <span className="truncate">{evento.titulo}</span>
+                  {evento.hora && (
+                    <span className="flex-none tabular-nums text-indigo-500">
+                      {evento.hora}
+                      {evento.horaFim ? `–${evento.horaFim}` : ""}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -97,13 +166,14 @@ function Chip({ children, onClick, tom = "neutro" }) {
   );
 }
 
-// Editor de datas liberadas: o setor marca no calendário os dias que as congregações podem pedir.
+// Editor de datas liberadas: o pai marca no calendário os dias que as salas filhas podem pedir.
 export function EditorDatas({
   programId,
   inicio,
   fim,
   liberadas = [],
   usadas = [],
+  agenda = [],
   demo = false,
 }) {
   const router = useRouter();
@@ -117,6 +187,7 @@ export function EditorDatas({
   const meses = useMemo(() => mesesDoPeriodo(chaveInicio, chaveFim), [chaveInicio, chaveFim]);
   const hoje = useMemo(() => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }), []);
   const diasUsados = useMemo(() => new Set(usadas.map((d) => String(d).slice(0, 10))), [usadas]);
+  const agendaMap = useMemo(() => agendaPorDia(agenda), [agenda]);
 
   const alterado =
     sel.size !== salvas.size || [...sel].some((chave) => !salvas.has(chave));
@@ -167,18 +238,18 @@ export function EditorDatas({
   return (
     <div className="grid gap-4">
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
           <div>
-            <h2 className="font-black text-slate-900">Datas liberadas para as congregações</h2>
+            <h2 className="font-black text-slate-900">Datas liberadas para as salas filhas</h2>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Marque no calendário os dias em que as congregações podem pedir. Pode liberar semanas
-              inteiras, só os fins de semana ou dias soltos — o critério é do setor.
+              Marque no calendário os dias em que as salas filhas podem pedir. Pode liberar semanas
+              inteiras, só os fins de semana ou dias soltos — o critério é do pai.
             </p>
             <p className="mt-2 text-xs text-slate-500">
               Nenhuma data marcada → todos os dias do período ficam liberados.
             </p>
           </div>
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="flex w-fit items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
             <span className="text-2xl font-black tabular-nums text-slate-900">{sel.size}</span>
             <span className="text-xs font-bold leading-tight text-slate-500">
               {sel.size === 1 ? "dia liberado" : "dias liberados"}
@@ -207,6 +278,8 @@ export function EditorDatas({
           ))}
         </div>
       </section>
+
+      <AgendaDoPeriodo agenda={agenda} porDia={agendaMap} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {meses.map((m) => {
@@ -275,6 +348,7 @@ export function EditorDatas({
                       selecionado={sel.has(chave)}
                       usado={diasUsados.has(chave)}
                       hoje={chave === hoje}
+                      eventos={agendaMap.get(chave) ?? []}
                       onClick={() => alternarData(chave)}
                     />
                   ) : (
@@ -317,12 +391,23 @@ export function EditorDatas({
             {estado.demo ? "Prévia: nada foi salvo de verdade." : "Datas salvas."}
           </span>
         )}
-        {diasUsados.size > 0 && (
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-            dia com pedido
-          </span>
-        )}
+        <div className="ml-auto flex flex-wrap items-center gap-3 text-[11px] font-medium text-slate-400">
+          {diasUsados.size > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              dia com pedido
+            </span>
+          )}
+          {agenda.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-0.5" aria-hidden="true">
+                <span className="h-1 w-1 rounded-full bg-indigo-500" />
+                <span className="h-1 w-1 rounded-full bg-indigo-500" />
+              </span>
+              agenda do pai
+            </span>
+          )}
+        </div>
       </section>
     </div>
   );
