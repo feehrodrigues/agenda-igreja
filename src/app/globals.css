@@ -192,8 +192,33 @@
   position: relative;
 }
 
-/* Scrollbar */
-.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+/* Fix para html2canvas: cores em formato hex (sem lab()) */
+.jpg-safe, .jpg-safe * {
+  color: #334155;
+  background-color: transparent;
+  border-color: #e2e8f0;
+}
+.jpg-safe .bg-slate-50 { background-color: #f8fafc; }
+.jpg-safe .bg-amber-50 { background-color: #fffbeb; }
+.jpg-safe .bg-white { background-color: #ffffff; }
+.jpg-safe .bg-amber-300 { background-color: #fcd34d; }
+.jpg-safe .bg-blue-50 { background-color: #eff6ff; }
+.jpg-safe .bg-slate-900 { background-color: #0f172a; }
+.jpg-safe .text-amber-700 { color: #b45309; }
+.jpg-safe .text-amber-800 { color: #92400e; }
+.jpg-safe .text-slate-400 { color: #94a3b8; }
+.jpg-safe .text-slate-500 { color: #64748b; }
+.jpg-safe .text-slate-800 { color: #1e293b; }
+.jpg-safe .text-slate-600 { color: #475569; }
+.jpg-safe .text-white { color: #ffffff; }
+.jpg-safe .text-blue-600 { color: #2563eb; }
+.jpg-safe .border-amber-100 { border-color: #fef3c7; }
+.jpg-safe .border-slate-100 { border-color: #f1f5f9; }
+.jpg-safe .border-slate-200 { border-color: #e2e8f0; }
+.jpg-safe .border-amber-200 { border-color: #fde68a; }
+.jpg-safe .border-l-amber-400 { border-left-color: #fbbf24; }
+.jpg-safe .bg-amber-50\/60 { background-color: rgba(255, 251, 235, 0.6); }
+.jpg-safe .bg-amber-50\/70 { background-color: rgba(255, 251, 235, 0.7); }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
 

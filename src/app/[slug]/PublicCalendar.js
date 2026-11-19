@@ -436,6 +436,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               useCORS: false,
               allowTaint: true,
               logging: false,
+              foreignObjectRendering: true,
           });
           // Cortar para formato 1:1 (quadrado).
           const lado = Math.min(canvas.width, canvas.height);
@@ -833,7 +834,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               <button onClick={() => setIsWeekOpen(false)} className="text-slate-400 hover:text-slate-700 p-2 rounded-full bg-slate-100"><X size={18}/></button>
             </div>
 
-            <div ref={weekRef} className="rounded-2xl border border-slate-200 overflow-hidden bg-white">
+            <div ref={weekRef} className="rounded-2xl border border-slate-200 overflow-hidden bg-white jpg-safe">
               <div className="px-4 py-3 border-b bg-slate-50 flex items-baseline justify-between gap-2">
                 <span className="font-black text-slate-800">{room.name}</span>
                 <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Agenda da semana</span>
