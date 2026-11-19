@@ -396,11 +396,10 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       for (let i = 1; i <= paginas; i++) {
           doc.setPage(i);
           doc.setFillColor(30, 41, 59);
-          const ondaY = altura - 8;
           doc.moveTo(0, altura);
           for (let x = 0; x <= largura; x += 0.5) {
               const t = x / largura;
-              const yy = altura - 4 - 14 * (1 - Math.cos(t * Math.PI * 0.5));
+              const yy = altura - 2 - 18 * Math.pow(t, 0.5);
               doc.lineTo(x, yy);
           }
           doc.lineTo(largura, altura);
