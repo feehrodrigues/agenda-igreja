@@ -50,7 +50,7 @@ const CustomEvent = ({ event }) => {
         <div
             data-origem={origem}
             style={{ backgroundColor: event.resource.color, color: textColor }}
-            className={`px-1.5 py-0.5 rounded text-[11px] font-bold truncate leading-tight h-full flex items-center gap-1.5 ${
+            className={`px-1.5 py-0.5 rounded text-[11px] font-bold leading-tight h-full flex flex-col justify-center gap-0.5 ${
                 origem === "pai"
                     ? "border border-dashed border-white/80 italic opacity-90"
                     : origem === "filho"
@@ -59,12 +59,12 @@ const CustomEvent = ({ event }) => {
             }`}
             title={origem === "pai" ? `Compromisso de ${nomeOrigem || "outra agenda"}` : origem === "filho" ? `Compromisso de ${nomeOrigem || "uma agenda filha"}` : undefined}
         >
-            <span className="truncate">{event.title}</span>
             {origem !== "proprio" && nomeOrigem && (
-                <span className={`flex-none text-[9px] font-black uppercase tracking-wide ${origem === "pai" ? "text-amber-100" : "text-sky-100"}`}>
-                    · {nomeOrigem}
+                <span className={`inline-flex self-start items-center rounded px-1 py-0 text-[8px] font-black uppercase tracking-wide leading-none ${origem === "pai" ? "bg-amber-200/40 text-amber-50" : "bg-sky-200/40 text-sky-50"}`}>
+                    {nomeOrigem}
                 </span>
             )}
+            <span className="truncate">{event.title}</span>
         </div>
     );
 };
@@ -219,31 +219,29 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   };
 
   const textoDaSemana = () => {
-      const linhas = [`*${room.name}*`, `_Agenda da semana · ${tituloDaSemana()}_`, ''];
+      const linhas = [
+          "AGENDA DA SEMANA",
+          `_Agenda da semana · ${tituloDaSemana()}_`,
+          `*${room.name}*`,
+          "",
+      ];
       semana.forEach((dia) => {
-          linhas.push(`*${dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' })}*`);
           const doDia = eventosDoDia(dia);
-          if (doDia.length === 0) linhas.push('_Sem eventos_');
+          if (doDia.length === 0) return;
+          linhas.push(`*${dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' })}*`);
           doDia.forEach((ev) => {
-              const hora = ev.allDay ? 'Dia todo' : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
-              const local = ev.resource?.roomName && ev.resource.isExternal ? ` (${ev.resource.roomName})` : '';
-              const tag = ev.resource?.origem === 'pai' ? '🟨 ' : ev.resource?.origem === 'filho' ? '🔹 ' : '';
-              linhas.push(`• ${hora} — ${tag}${ev.title}${local}`);
+              const hora = ev.allDay ? "Dia todo" : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
+              linhas.push(`• ${hora} — ${ev.title}`);
+              if (ev.resource?.origem === "pai" && ev.resource?.roomName) {
+                  linhas.push(`  > 🟨 ${ev.resource.roomName}`);
+              } else if (ev.resource?.origem === "filho" && ev.resource?.roomName) {
+                  linhas.push(`  > 🔹 ${ev.resource.roomName}`);
+              }
           });
-          linhas.push('');
+          linhas.push("");
       });
-      const nomesPai = [...new Set(
-          semana.flatMap((dia) => eventosDoDia(dia))
-              .filter((ev) => ev.resource?.origem === 'pai')
-              .map((ev) => ev.resource?.roomName)
-              .filter(Boolean),
-      )];
-      if (nomesPai.length > 0) {
-          linhas.push(`🟨 = ${nomesPai.join(' / ')}`);
-          linhas.push('');
-      }
-      linhas.push('_Enviado pela Agenda Igreja_');
-      return linhas.join('\n');
+      linhas.push("_Enviado pela Agenda Igreja_");
+      return linhas.join("\n");
   };
 
   const [textoCopiado, setTextoCopiado] = useState(false);
@@ -432,13 +430,19 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       if (!weekRef.current) return;
       setWeekGenerating(true);
       try {
-          const canvas = await html2canvas(weekRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+          const canvas = await html2canvas(weekRef.current, {
+              scale: 2,
+              backgroundColor: '#ffffff',
+              useCORS: false,
+              allowTaint: true,
+              logging: false,
+          });
           const a = document.createElement('a');
           a.href = canvas.toDataURL('image/jpeg', 0.95);
           a.download = `agenda-semana-${room.slug}.jpg`;
           a.click();
       } catch (e) {
-          console.error(e);
+          console.error("JPG erro:", e);
           alert('Não foi possível gerar o JPG.');
       } finally {
           setWeekGenerating(false);
@@ -704,10 +708,10 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
             <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div><div className="leading-tight"><h1 className="text-base md:text-lg font-black text-slate-900 truncate max-w-[150px] md:max-w-md">{room.name}</h1><p className="text-[10px] text-slate-500 font-bold uppercase">Agenda Igreja</p></div></div>
             <div className="flex items-center gap-2">
                 <button onClick={() => { setWeekAnchor(new Date()); setIsWeekOpen(true); }} className="flex items-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-full font-bold text-xs hover:bg-slate-700 transition" title="Agenda da semana">
-                    <CalendarDays size={14} /> <span className="hidden sm:inline">Semana</span>
+                    <CalendarDays size={14} /> <span className="hidden sm:inline">Agenda da Semana</span>
                 </button>
                 <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-full font-bold text-xs hover:bg-blue-700 transition" title="Baixar agenda (mensal, anual, Excel, PDF)">
-                    <Download size={14} /> <span className="hidden sm:inline">Baixar</span>
+                    <Download size={14} /> <span className="hidden sm:inline">Baixar Agenda</span>
                 </button>
                 <div className="relative">
                     <button onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-full font-bold text-xs hover:bg-slate-200 transition">Opções <ChevronDown size={14} className={`transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} /></button>
