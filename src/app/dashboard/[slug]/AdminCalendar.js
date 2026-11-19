@@ -12,7 +12,7 @@ import {
     createEvent, updateEvent, deleteEvent, createCategory, deleteCategory, updateRoom, deleteRoom, setChildRoomGroup, rebroadcastEvent, getChildRoomEvents 
 } from '@/app/actions';
 import { 
-    Trash2, Plus, AlertTriangle, ArrowLeft, ExternalLink, Check, Repeat, Layers, Clock, CalendarDays, Settings, ShieldAlert, X, Eye, Lock, Target, Tag, Users, Send, Loader2, PanelLeftClose, PanelLeftOpen, Shield, MapPin, Share2, FileText
+    Trash2, Plus, AlertTriangle, ArrowLeft, ExternalLink, Check, Repeat, Layers, Clock, CalendarDays, Settings, ShieldAlert, X, Eye, Lock, Target, Tag, Users, Send, Loader2, PanelLeftClose, PanelLeftOpen, Shield, MapPin, Share2, FileText, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 const locales = { 'pt-BR': ptBR };
@@ -43,6 +43,26 @@ const safeProcessEvents = (eventsData) => {
         return { ...e, start, end };
     });
 };
+
+const CustomToolbar = (toolbar) => (
+    <div className="flex flex-col gap-2 mb-3 p-2 bg-white rounded-xl shadow-sm border border-slate-100">
+        <div className="flex items-center justify-between w-full px-1">
+            <div className="flex items-center gap-1">
+                <button onClick={() => toolbar.onNavigate('PREV')} className="p-2 hover:bg-slate-100 rounded-full transition"><ChevronLeft size={18}/></button>
+                <button onClick={() => toolbar.onNavigate('TODAY')} className="text-xs font-bold bg-slate-100 px-3 py-2 rounded-lg">Hoje</button>
+                <button onClick={() => toolbar.onNavigate('NEXT')} className="p-2 hover:bg-slate-100 rounded-full transition"><ChevronRight size={18}/></button>
+            </div>
+            <span className="text-sm md:text-lg font-black text-slate-800 capitalize">{format(toolbar.date, 'MMMM yyyy', { locale: ptBR })}</span>
+            <div className="flex p-1 bg-slate-100 rounded-xl">
+                {['month', 'week', 'day', 'agenda'].map((v) => (
+                    <button key={v} onClick={() => { toolbar.onView(v); setView(v); }} className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${view === v ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
+                        {v === 'month' ? 'Mês' : v === 'week' ? 'Semana' : v === 'day' ? 'Dia' : 'Lista'}
+                    </button>
+                ))}
+            </div>
+        </div>
+    </div>
+);
 
 export default function AdminCalendar({ room, initialEvents, categories, allParents, childrenRooms }) {
     const router = useRouter();
@@ -389,12 +409,12 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                         {/* Voltar: sempre visível, inclusive no celular */}
                         <button
                             onClick={() => router.push('/dashboard')}
-                            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-2 rounded-xl font-bold text-sm whitespace-nowrap transition active:scale-95"
-                            title="Voltar ao painel"
-                            aria-label="Voltar ao painel"
+                            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap transition active:scale-95"
+                            title="Voltar"
+                            aria-label="Voltar"
                         >
                             <ArrowLeft size={18} />
-                            <span className="hidden sm:inline">Painel</span>
+                            <span className="hidden sm:inline">Voltar</span>
                         </button>
 
                         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="flex text-slate-500 hover:text-slate-800 p-2 rounded-lg hover:bg-slate-100 transition-colors" title="Mostrar/ocultar salas">
@@ -441,7 +461,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                             selectable
                             onSelectSlot={(slot) => prepareForm(null, slot)}
                             onSelectEvent={(evt) => prepareForm(evt)}
-                            components={{ event: EventComponent }}
+                            components={{ event: EventComponent, toolbar: CustomToolbar }}
                             messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Nenhum evento visível.", showMore: total => `+${total} ver mais` }}
                             popup={true}
                             style={{ height: '100%' }}
