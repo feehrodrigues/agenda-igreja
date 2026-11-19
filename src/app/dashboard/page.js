@@ -35,7 +35,7 @@ export default async function Dashboard() {
   if (!userId) redirect("/");
 
   const [memberships, todasSalas, allParentRooms] = await Promise.all([
-    prisma.member.findMany({ where: { userId }, select: { roomId: true } }),
+    prisma.member.findMany({ where: { userId }, select: { roomId: true, role: true } }),
     prisma.room.findMany({
       orderBy: { name: "asc" },
       select: {
@@ -58,21 +58,46 @@ export default async function Dashboard() {
   const minhasIds = new Set(memberships.map((m) => m.roomId));
   const porId = new Map(todasSalas.map((s) => [s.id, s]));
 
-  // Raízes: salas em que participo cujo pai (ou avô) não está também nas minhas
-  // salas. Assim o diretório começa no nível mais alto que eu administro.
+  // Salas que o usuário administra (OWNER/ADMIN) — tem acesso herdado aos filhos.
+  const salasAdmin = new Set(
+    memberships.filter((m) => ['OWNER', 'ADMIN'].includes(m.role)).map((m) => m.roomId),
+  );
+
+  // Descendentes de salas administradas (para que apareçam na home mesmo que
+  // o usuário não seja membro direto delas).
+  const descendentesAdmin = new Set();
+  for (const salaId of salasAdmin) {
+    const fila = [salaId];
+    while (fila.length > 0) {
+      const id = fila.shift();
+      for (const sala of todasSalas) {
+        if (sala.parentId === id && !descendentesAdmin.has(sala.id)) {
+          descendentesAdmin.add(sala.id);
+          fila.push(sala.id);
+        }
+      }
+    }
+  }
+  // Remove as próprias salas admin (já estão em minhasIds).
+  for (const id of salasAdmin) descendentesAdmin.delete(id);
+
+  // IDs efetivos: diretas + descendentes administrados.
+  const idsEfetivos = new Set([...minhasIds, ...descendentesAdmin]);
+
+  // Raízes: salas efetivas cujo pai (ou avô) não está também nas efetivas.
   const raizIds = [];
   for (const sala of todasSalas) {
-    if (!minhasIds.has(sala.id)) continue;
+    if (!idsEfetivos.has(sala.id)) continue;
     let pai = sala.parentId ? porId.get(sala.parentId) : null;
-    let temAncestralMinha = false;
+    let temAncestralEfetivo = false;
     while (pai) {
-      if (minhasIds.has(pai.id)) {
-        temAncestralMinha = true;
+      if (idsEfetivos.has(pai.id)) {
+        temAncestralEfetivo = true;
         break;
       }
       pai = pai.parentId ? porId.get(pai.parentId) : null;
     }
-    if (!temAncestralMinha) raizIds.push(sala.id);
+    if (!temAncestralEfetivo) raizIds.push(sala.id);
   }
 
   const roots = montarArvore(todasSalas, raizIds);

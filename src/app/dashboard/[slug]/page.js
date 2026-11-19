@@ -77,7 +77,28 @@ export default async function RoomEditorPage({ params, searchParams }) {
       where: { userId_roomId: { userId, roomId: room.id } } 
   });
 
-  if (!membership) redirect("/dashboard");
+  // Acesso herdado: se o usuario e admin/owner de um ancestral, pode gerenciar
+  // esta sala (mesmo que nao seja membro direto dela).
+  let acessoHerdado = false;
+  if (!membership) {
+      let ancestralId = room.parentId;
+      while (ancestralId) {
+          const m = await prisma.member.findUnique({
+              where: { userId_roomId: { userId, roomId: ancestralId } },
+          });
+          if (m && (m.role === 'OWNER' || m.role === 'ADMIN')) {
+              acessoHerdado = true;
+              break;
+          }
+          const anc = await prisma.room.findUnique({
+              where: { id: ancestralId },
+              select: { parentId: true },
+          });
+          ancestralId = anc ? anc.parentId : null;
+      }
+  }
+
+  if (!membership && !acessoHerdado) redirect("/dashboard");
 
   const [rawEvents, stats, categories, allParents] = await Promise.all([
       getRoomEvents(room.id),
