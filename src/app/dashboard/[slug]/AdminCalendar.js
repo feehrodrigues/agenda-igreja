@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, getDate, set } from 'date-fns';
@@ -104,20 +104,16 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
         return map;
     }, [initialEvents]);
 
-    // Tudo que o servidor já trouxe fica visível de início. Antes, apenas a sala
-    // aberta e o pai apareciam, e os eventos das congregações exigiam um clique
-    // em "Alternar Tudo" — era o motivo de a grade mostrar só um evento.
+    // Por padrão mostra só a agenda aberta e a do pai. As congregações filhas
+    // entram quando o usuário clicar em "Alternar Tudo" (ou no checkbox delas).
     const initialVisibleIds = useMemo(() => {
         const ids = new Set([room.id]);
         if (room.parentId) ids.add(room.parentId);
-        Object.keys(initialFetchedMap).forEach(id => ids.add(id));
-        (childrenRooms || []).forEach(c => ids.add(c.id));
         return ids;
-    }, [room.id, room.parentId, initialFetchedMap, childrenRooms]);
+    }, [room.id, room.parentId]);
 
     const [allFetchedEvents, setAllFetchedEvents] = useState(initialFetchedMap);
     const [visibleRoomIds, setVisibleRoomIds] = useState(initialVisibleIds);
-    const salasConhecidas = useRef(new Set(initialVisibleIds));
 
     // O router.refresh() traz novos props do servidor (ex.: evento recém-criado),
     // mas o useState não é reinicializado. Sincroniza as salas que vieram do
@@ -128,19 +124,6 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
             Object.entries(initialFetchedMap).forEach(([roomId, eventos]) => {
                 proximo[roomId] = eventos;
             });
-            return proximo;
-        });
-    }, [initialFetchedMap]);
-
-    // Se um refresh trouxer eventos de uma sala que ainda não existia no mapa,
-    // ela entra na visualização sem reaparecer salas que o usuário ocultou.
-    useEffect(() => {
-        const novas = Object.keys(initialFetchedMap).filter(id => !salasConhecidas.current.has(id));
-        if (novas.length === 0) return;
-        novas.forEach(id => salasConhecidas.current.add(id));
-        setVisibleRoomIds(prev => {
-            const proximo = new Set(prev);
-            novas.forEach(id => proximo.add(id));
             return proximo;
         });
     }, [initialFetchedMap]);
