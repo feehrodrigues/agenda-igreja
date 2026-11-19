@@ -370,20 +370,20 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               doc.setTextColor(marcaPai ? 80 : 71);
               doc.text(hora, margem + 6 + indentacao, y);
 
+              if (marcaPai && ev.resource?.roomName && ev.resource.isExternal) {
+                  doc.setFont('helvetica', 'bold');
+                  doc.setFontSize(8);
+                  doc.setTextColor(180, 130, 20);
+                  doc.text(ev.resource.roomName, margem + 34 + indentacao, y);
+                  y += 4;
+              }
+
               doc.setFont('helvetica', 'bold');
               doc.setFontSize(10);
               doc.setTextColor(30, 41, 59);
               doc.text(tituloLinhas, margem + 34 + indentacao, y);
               y += (tituloLinhas.length - 1) * 4.5 + 7;
 
-              const local = ev.resource?.roomName && ev.resource.isExternal ? ev.resource.roomName : null;
-              if (local) {
-                  doc.setFont('helvetica', marcaPai ? 'bold' : 'normal');
-                  doc.setFontSize(8);
-                  doc.setTextColor(marcaPai ? 80 : 100);
-                  doc.text(local, margem + 34 + indentacao, y - 2);
-                  y += 3;
-              }
               if (marcaPai) {
                   y += 2;
               }
