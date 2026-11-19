@@ -432,62 +432,84 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, 1080, 1080);
 
-          // Cabeçalho slate-800 (padrão, mesmo do PDF).
+          // Cabeçalho slate-800.
           ctx.fillStyle = '#1e293b';
-          ctx.fillRect(0, 0, 1080, 130);
+          ctx.fillRect(0, 0, 1080, 150);
+
+          // Ondinha decorativa no cabeçalho.
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+          ctx.beginPath();
+          ctx.moveTo(0, 150);
+          for (let x = 0; x <= 1080; x += 2) {
+              const t = x / 1080;
+              const yy = 150 - 12 * Math.sin(t * Math.PI);
+              ctx.lineTo(x, yy);
+          }
+          ctx.lineTo(1080, 150);
+          ctx.lineTo(0, 150);
+          ctx.closePath();
+          ctx.fill();
+
+          // Marca AgendaIgreja.
+          ctx.font = 'bold 20px Arial, sans-serif';
+          ctx.fillStyle = '#64748b';
+          ctx.textAlign = 'right';
+          ctx.fillText('AgendaIgreja', 1030, 40);
+          ctx.textAlign = 'left';
 
           // Nome da sala.
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 48px Arial, sans-serif';
-          ctx.fillText(room.name, 50, 55);
+          ctx.font = 'bold 56px Arial, sans-serif';
+          ctx.fillText(room.name, 50, 65);
 
           // Subtítulo.
-          ctx.font = '22px Arial, sans-serif';
+          ctx.font = '28px Arial, sans-serif';
           ctx.fillStyle = '#94a3b8';
-          ctx.fillText('Agenda da Semana', 50, 85);
+          ctx.fillText('Agenda da Semana', 50, 100);
 
           // Data da semana.
-          ctx.font = '18px Arial, sans-serif';
+          ctx.font = '22px Arial, sans-serif';
           ctx.fillStyle = '#64748b';
-          ctx.fillText(tituloDaSemana(), 50, 112);
-
-          // Marca.
-          ctx.font = '16px Arial, sans-serif';
-          ctx.fillStyle = '#64748b';
-          ctx.textAlign = 'right';
-          ctx.fillText('AgendaIgreja', 1030, 55);
-          ctx.textAlign = 'left';
+          ctx.fillText(tituloDaSemana(), 50, 130);
 
           // Dias e eventos.
-          let yPos = 150;
-          const margem = 50;
+          let yPos = 170;
+          const margem = 40;
           const larguraConteudo = 1080 - margem * 2;
           const DIAS_CURTOS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
 
           semana.forEach((dia, indice) => {
               const doDia = eventosDoDia(dia);
 
-              // Cabeçalho do dia.
+              // Cabeçalho do dia (arredondado).
               ctx.fillStyle = '#f1f5f9';
-              ctx.fillRect(margem, yPos, larguraConteudo, 42);
-              ctx.fillStyle = '#1e293b';
-              ctx.fillRect(margem + 4, yPos + 4, 42, 34);
-              ctx.fillStyle = '#ffffff';
-              ctx.font = 'bold 13px Arial, sans-serif';
-              ctx.textAlign = 'center';
-              ctx.fillText(DIAS_CURTOS[indice], margem + 25, yPos + 27);
-              ctx.textAlign = 'left';
-              ctx.fillStyle = '#1e293b';
-              ctx.font = 'bold 20px Arial, sans-serif';
-              ctx.fillText(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 56, yPos + 28);
+              ctx.beginPath();
+              ctx.roundRect(margem, yPos, larguraConteudo, 46, 12);
+              ctx.fill();
 
-              yPos += 48;
+              // Badge do dia da semana.
+              ctx.fillStyle = '#1e293b';
+              ctx.beginPath();
+              ctx.roundRect(margem + 6, yPos + 5, 50, 36, 8);
+              ctx.fill();
+              ctx.fillStyle = '#ffffff';
+              ctx.font = 'bold 16px Arial, sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillText(DIAS_CURTOS[indice], margem + 31, yPos + 29);
+              ctx.textAlign = 'left';
+
+              // Data.
+              ctx.fillStyle = '#1e293b';
+              ctx.font = 'bold 24px Arial, sans-serif';
+              ctx.fillText(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 66, yPos + 30);
+
+              yPos += 52;
 
               if (doDia.length === 0) {
                   ctx.fillStyle = '#94a3b8';
-                  ctx.font = 'italic 16px Arial, sans-serif';
-                  ctx.fillText('Sem eventos', margem + 10, yPos + 18);
-                  yPos += 28;
+                  ctx.font = 'italic 18px Arial, sans-serif';
+                  ctx.fillText('Sem eventos', margem + 12, yPos + 20);
+                  yPos += 32;
               } else {
                   doDia.forEach((ev) => {
                       const marcaPai = ev.resource?.origem === 'pai';
@@ -495,36 +517,42 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
                       if (marcaPai) {
                           ctx.fillStyle = '#fefce8';
-                          ctx.fillRect(margem + 8, yPos - 4, larguraConteudo - 8, 32);
+                          ctx.beginPath();
+                          ctx.roundRect(margem + 8, yPos - 6, larguraConteudo - 8, 38, 8);
+                          ctx.fill();
+                          // Barra lateral âmbar.
+                          ctx.fillStyle = '#fbbf24';
+                          ctx.fillRect(margem + 8, yPos - 6, 5, 38);
                       }
 
                       ctx.fillStyle = marcaPai ? '#92400e' : '#475569';
-                      ctx.font = 'bold 14px Arial, sans-serif';
-                      ctx.fillText(hora, margem + 16, yPos + 16);
+                      ctx.font = 'bold 16px Arial, sans-serif';
+                      ctx.fillText(hora, margem + 22, yPos + 16);
 
                       ctx.fillStyle = '#1e293b';
-                      ctx.font = marcaPai ? 'italic bold 16px Arial, sans-serif' : 'bold 16px Arial, sans-serif';
-                      ctx.fillText(ev.title, margem + 130, yPos + 16);
+                      ctx.font = marcaPai ? 'italic bold 18px Arial, sans-serif' : 'bold 18px Arial, sans-serif';
+                      ctx.fillText(ev.title, margem + 140, yPos + 16);
 
                       if (marcaPai && ev.resource?.roomName && ev.resource.isExternal) {
                           ctx.fillStyle = '#92400e';
-                          ctx.font = 'bold 12px Arial, sans-serif';
-                          ctx.fillText(ev.resource.roomName, margem + 130, yPos + 32);
-                          yPos += 10;
+                          ctx.font = 'bold 13px Arial, sans-serif';
+                          ctx.fillText(ev.resource.roomName, margem + 140, yPos + 36);
+                          yPos += 12;
                       }
 
-                      yPos += 32;
+                      yPos += 36;
                   });
               }
-              yPos += 6;
+              yPos += 8;
           });
 
-          // Rodapé com curva elegante.
+          // Rodapé com onda elegante.
           ctx.fillStyle = '#1e293b';
+          ctx.beginPath();
           ctx.moveTo(0, 1080);
           for (let x = 0; x <= 1080; x += 2) {
               const t = x / 1080;
-              const yy = 1080 - 2 - 16 * Math.sin(t * Math.PI * 0.5);
+              const yy = 1080 - 4 - 28 * Math.sin(t * Math.PI * 0.5);
               ctx.lineTo(x, yy);
           }
           ctx.lineTo(1080, 1080);
@@ -533,11 +561,11 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.fill();
 
           ctx.fillStyle = '#ffffff';
-          ctx.font = '14px Arial, sans-serif';
+          ctx.font = '16px Arial, sans-serif';
           ctx.textAlign = 'left';
-          ctx.fillText(`${room.name} · ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, 50, 1068);
+          ctx.fillText(`${room.name} · ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, 50, 1065);
           ctx.textAlign = 'right';
-          ctx.fillText('Página 1 de 1', 1030, 1068);
+          ctx.fillText('Página 1 de 1', 1030, 1065);
 
           const a = document.createElement('a');
           a.href = canvas.toDataURL('image/jpeg', 0.95);
