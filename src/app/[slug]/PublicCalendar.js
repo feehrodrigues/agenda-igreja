@@ -302,7 +302,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       doc.text(tituloDaSemana(), margem, 32);
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text('AGENDA IGREJA', largura - margem, 16, { align: 'right' });
+      doc.text('AgendaIgreja', largura - margem, 16, { align: 'right' });
 
       let y = 46;
 
@@ -411,7 +411,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           doc.fill();
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(8);
-          doc.setTextColor(0, 0, 0);
+          doc.setTextColor(255, 255, 255);
           doc.text(`${room.name} · ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, margem, altura - 7);
           doc.text(`Página ${i} de ${paginas}`, largura - margem, altura - 7, { align: 'right' });
       }
