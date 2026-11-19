@@ -220,9 +220,8 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
   const textoDaSemana = () => {
       const linhas = [
-          "*AGENDA DA SEMANA*",
-          `_Agenda da semana · ${tituloDaSemana()}_`,
-          `*${room.name}*`,
+          `*AGENDA DA SEMANA · ${tituloDaSemana()}*`,
+          `_${room.name}_`,
           "",
       ];
       semana.forEach((dia) => {
@@ -231,11 +230,12 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           linhas.push(`*${dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' })}*`);
           doDia.forEach((ev) => {
               const hora = ev.allDay ? "Dia todo" : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
-              linhas.push(`• ${hora} — ${ev.title}`);
               if (ev.resource?.origem === "pai" && ev.resource?.roomName) {
-                  linhas.push(`  > 🟨 ${ev.resource.roomName}`);
+                  linhas.push(`> 🟨 ${ev.resource.roomName}  |  ${hora} — ${ev.title}`);
               } else if (ev.resource?.origem === "filho" && ev.resource?.roomName) {
-                  linhas.push(`  > 🔹 ${ev.resource.roomName}`);
+                  linhas.push(`> 🔹 ${ev.resource.roomName}  |  ${hora} — ${ev.title}`);
+              } else {
+                  linhas.push(`• ${hora} — ${ev.title}`);
               }
           });
           linhas.push("");
@@ -829,7 +829,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               <button onClick={() => setIsWeekOpen(false)} className="text-slate-400 hover:text-slate-700 p-2 rounded-full bg-slate-100"><X size={18}/></button>
             </div>
 
-            <div ref={weekRef} className="rounded-2xl border border-slate-200 overflow-hidden bg-white jpg-safe">
+            <div ref={weekRef} className="rounded-2xl border border-slate-200 overflow-hidden bg-white">
               <div className="px-4 py-3 border-b bg-slate-50 flex items-baseline justify-between gap-2">
                 <span className="font-black text-slate-800">{room.name}</span>
                 <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Agenda da semana</span>
