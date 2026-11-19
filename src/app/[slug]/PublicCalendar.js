@@ -284,42 +284,27 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const largura = doc.internal.pageSize.getWidth();
       const altura = doc.internal.pageSize.getHeight();
-      const margem = 14;
-      const [r, g, b] = hexToRgb(room.color || '#3b82f6');
+      const margem = 18;
       const DIAS_CURTOS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
 
-      // Faixa de cabeçalho com a cor da sala.
-      doc.setFillColor(r, g, b);
-      doc.rect(0, 0, largura, 30, 'F');
+      // Faixa de cabeçalho (padrão slate).
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, largura, 36, 'F');
       doc.setTextColor(255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.text(room.name, margem, 15);
+      doc.setFontSize(22);
+      doc.text(room.name, margem, 16);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.text(`Agenda da semana · ${tituloDaSemana()}`, margem, 23);
-
-      // Marca discreta à direita.
+      doc.setFontSize(11);
+      doc.setTextColor(203, 213, 225);
+      doc.text('Agenda da Semana', margem, 24);
+      doc.setFontSize(9);
+      doc.text(tituloDaSemana(), margem, 31);
       doc.setFontSize(8);
-      doc.text('AGENDA IGREJA', largura - margem, 15, { align: 'right' });
+      doc.setTextColor(148, 163, 184);
+      doc.text('AGENDA IGREJA', largura - margem, 16, { align: 'right' });
 
-      // Legenda visual quando a semana tem compromissos herdados.
-      const nomesPai = [...new Set(
-          semana.flatMap((dia) => eventosDoDia(dia))
-              .filter((ev) => ev.resource?.origem === 'pai')
-              .map((ev) => ev.resource?.roomName)
-              .filter(Boolean),
-      )];
-      let y = 40;
-      if (nomesPai.length > 0) {
-          doc.setFillColor(252, 211, 77);
-          doc.rect(margem, y - 3.5, 5, 3.5, 'F');
-          doc.setTextColor(146, 100, 20);
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8);
-          doc.text(doc.splitTextToSize(nomesPai.join(' / '), largura - margem * 2 - 8)[0], margem + 8, y);
-          y += 6;
-      }
+      let y = 46;
 
       const larguraConteudo = largura - margem * 2;
 
@@ -343,27 +328,20 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           novaPaginaSePreciso(12 + alturaEventos + 4);
 
           // Cabeçalho do dia.
-          doc.setFillColor(248, 250, 252);
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(margem, y, larguraConteudo, 9, 2, 2, 'FD');
-
-          doc.setFillColor(r, g, b);
-          doc.roundedRect(margem + 1.5, y + 1.5, 16, 6, 1.5, 1.5, 'F');
+          doc.setFillColor(241, 245, 249);
+          doc.roundedRect(margem, y, larguraConteudo, 10, 2, 2, 'F');
+          doc.setFillColor(30, 41, 59);
+          doc.roundedRect(margem + 2, y + 2, 16, 6, 1.5, 1.5, 'F');
           doc.setTextColor(255);
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(7.5);
-          doc.text(DIAS_CURTOS[indice], margem + 9.5, y + 5.6, { align: 'center' });
+          doc.text(DIAS_CURTOS[indice], margem + 10, y + 6.2, { align: 'center' });
 
-          doc.setTextColor(30);
-          doc.setFontSize(10);
-          doc.text(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 21, y + 6);
+          doc.setTextColor(30, 41, 59);
+          doc.setFontSize(11);
+          doc.text(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 22, y + 7);
 
-          const hoje = chaveDiaSP(dia) === chaveDiaSP(new Date());
-          if (hoje) {
-              doc.setFillColor(r, g, b);
-              doc.circle(largura - margem - 4, y + 4.5, 1.6, 'F');
-          }
-          y += 12;
+          y += 13;
 
           if (doDia.length === 0) {
               doc.setTextColor(150);
@@ -375,58 +353,58 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
           doDia.forEach((ev) => {
               const marcaPai = ev.resource?.origem === 'pai';
-              const tituloLinhas = doc.splitTextToSize(
-                  `${ev.title}${ev.description ? ` — ${ev.description}` : ''}`,
-                  larguraConteudo - 38,
-              );
-              novaPaginaSePreciso(6 + (tituloLinhas.length - 1) * 4.5 + 4);
+              const tituloLinhas = doc.splitTextToSize(ev.title, larguraConteudo - 42);
+              novaPaginaSePreciso(8 + (tituloLinhas.length - 1) * 4.5 + 4);
+
+              const indentacao = marcaPai ? 8 : 0;
 
               if (marcaPai) {
-                  doc.setFillColor(252, 211, 77);
-                  doc.rect(margem + 1.5, y - 3.5, 1.6, 4, 'F');
+                  doc.setFillColor(254, 243, 199);
+                  doc.roundedRect(margem + indentacao, y - 4, larguraConteudo - indentacao, 7 + (tituloLinhas.length - 1) * 4.5 + (ev.resource?.roomName && ev.resource.isExternal ? 4 : 0), 1.5, 1.5, 'F');
+                  doc.setDrawColor(251, 191, 36);
+                  doc.setLineWidth(0.4);
+                  doc.roundedRect(margem + indentacao, y - 4, larguraConteudo - indentacao, 7 + (tituloLinhas.length - 1) * 4.5 + (ev.resource?.roomName && ev.resource.isExternal ? 4 : 0), 1.5, 1.5, 'S');
               }
 
               const hora = ev.allDay ? 'Dia todo' : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
               doc.setFont('helvetica', 'bold');
-              doc.setFontSize(8);
-              doc.setTextColor(marcaPai ? 160 : 90);
-              doc.text(hora, margem + 6, y);
+              doc.setFontSize(8.5);
+              doc.setTextColor(marcaPai ? 180 : 71);
+              doc.text(hora, margem + 6 + indentacao, y);
 
               doc.setFont('helvetica', marcaPai ? 'italic' : 'bold');
-              doc.setFontSize(9);
-              doc.setTextColor(marcaPai ? 150 : 30);
-              doc.text(tituloLinhas, margem + 36, y);
-              y += (tituloLinhas.length - 1) * 4.5 + 6;
+              doc.setFontSize(10);
+              doc.setTextColor(marcaPai ? 146 : 30);
+              doc.text(tituloLinhas, margem + 34 + indentacao, y);
+              y += (tituloLinhas.length - 1) * 4.5 + 7;
 
               const local = ev.resource?.roomName && ev.resource.isExternal ? ev.resource.roomName : null;
               if (local) {
                   doc.setFont('helvetica', marcaPai ? 'bold' : 'normal');
-                  doc.setFontSize(7.5);
-                  doc.setTextColor(marcaPai ? 146 : 130);
-                  doc.text(local, margem + 36, y - 1);
+                  doc.setFontSize(8);
+                  doc.setTextColor(marcaPai ? 180 : 100);
+                  doc.text(local, margem + 34 + indentacao, y - 2);
                   y += 3;
               }
+              if (marcaPai) {
+                  y += 2;
+              }
           });
-          y += 3;
+          y += 4;
       });
 
-      // Rodapé com ondinha decorativa.
+      // Rodapé com curva elegante.
       const paginas = doc.internal.getNumberOfPages();
       for (let i = 1; i <= paginas; i++) {
           doc.setPage(i);
-          // Ondinha.
-          doc.setFillColor(r, g, b);
-          const ondaY = altura - 16;
+          doc.setFillColor(30, 41, 59);
+          const ondaY = altura - 12;
           doc.moveTo(0, ondaY);
-          for (let x = 0; x <= largura; x += 1) {
-              const yy = ondaY + Math.sin(x * 0.06) * 3;
-              doc.lineTo(x, yy);
-          }
+          doc.bezierCurveTo(largura * 0.25, ondaY - 8, largura * 0.75, ondaY + 4, largura, ondaY - 6);
           doc.lineTo(largura, altura);
           doc.lineTo(0, altura);
           doc.close();
           doc.fill();
-          // Texto do rodapé.
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(8);
           doc.setTextColor(255);
@@ -434,7 +412,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           doc.text(`Página ${i} de ${paginas}`, largura - margem, altura - 7, { align: 'right' });
       }
 
-      doc.save(`agenda-semana-${room.slug}.pdf`);
+      doc.save(`agenda-semana-${room.slug}-${tituloDaSemana().replace(/[^a-zA-Z0-9]/g, '-')}.pdf`);
   };
 
   const baixarJPGDaSemana = async () => {
