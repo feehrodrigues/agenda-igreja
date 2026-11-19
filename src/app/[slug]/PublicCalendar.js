@@ -220,7 +220,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
   const textoDaSemana = () => {
       const linhas = [
-          "AGENDA DA SEMANA",
+          "*AGENDA DA SEMANA*",
           `_Agenda da semana · ${tituloDaSemana()}_`,
           `*${room.name}*`,
           "",
@@ -437,8 +437,17 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               allowTaint: true,
               logging: false,
           });
+          // Cortar para formato 1:1 (quadrado).
+          const lado = Math.min(canvas.width, canvas.height);
+          const squareCanvas = document.createElement('canvas');
+          squareCanvas.width = lado;
+          squareCanvas.height = lado;
+          const ctx = squareCanvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, lado, lado);
+          ctx.drawImage(canvas, 0, 0, lado, lado, 0, 0, lado, lado);
           const a = document.createElement('a');
-          a.href = canvas.toDataURL('image/jpeg', 0.95);
+          a.href = squareCanvas.toDataURL('image/jpeg', 0.95);
           a.download = `agenda-semana-${room.slug}.jpg`;
           a.click();
       } catch (e) {
