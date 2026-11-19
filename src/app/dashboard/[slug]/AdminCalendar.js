@@ -48,10 +48,20 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
     const router = useRouter();
     
     // ATUALIZAÇÃO AUTOMÁTICA
+    // Além de atualizar ao voltar o foco, busca mudanças feitas por outras
+    // pessoas na mesma sala a cada poucos segundos (sem recarregar a tela).
     useEffect(() => {
         const handleFocus = () => router.refresh();
         window.addEventListener('focus', handleFocus);
-        return () => window.removeEventListener('focus', handleFocus);
+        const intervalo = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                router.refresh();
+            }
+        }, 12000);
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            clearInterval(intervalo);
+        };
     }, [router]);
 
     const [view, setView] = useState('month');

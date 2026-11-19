@@ -1,11 +1,20 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { PrismaClient } from "@prisma/client";
 import { ArrowRight, Heart, Calendar } from "lucide-react";
+import PublicRoomSearch from "./PublicRoomSearch";
+
+const prisma = new PrismaClient();
 
 export default async function Home() {
   const { userId } = await auth();
   if (userId) redirect("/dashboard");
+
+  const salas = await prisma.room.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, slug: true, type: true, color: true, group: true },
+  });
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] text-[#3D3630]">
@@ -43,6 +52,15 @@ export default async function Home() {
               Começar Agora <ArrowRight size={24}/>
             </Link>
           </div>
+
+          {salas.length > 0 && (
+            <div className="pt-4">
+              <p className="mb-4 text-xs font-black uppercase tracking-[0.2em] text-[#B9A98F]">
+                Encontre sua agenda
+              </p>
+              <PublicRoomSearch rooms={salas} />
+            </div>
+          )}
         </div>
       </main>
 

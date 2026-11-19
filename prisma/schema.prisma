@@ -15,6 +15,7 @@ model Room {
   color      String  @default("#3b82f6")
   inviteCode String  @unique @default(cuid())
   group      String?
+  groupColor String? // Cor da região (agrupamento) definida pelo pai
 
   parentId String?
   parent   Room?   @relation("Hierarchy", fields: [parentId], references: [id])

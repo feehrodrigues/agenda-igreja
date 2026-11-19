@@ -107,7 +107,11 @@ export async function setChildRoomGroup(formData) {
 
   const childRoomId = formData.get("childRoomId");
   const parentRoomId = formData.get("parentRoomId"); // O ID do pai que está fazendo a ação
-  const group = formData.get("group");
+  const groupBruto = formData.get("group");
+  const group = groupBruto === null ? null : String(groupBruto).trim();
+  const groupColorBruto = formData.get("groupColor");
+  const groupColor =
+    groupColorBruto === null ? null : String(groupColorBruto).trim() || null;
 
   if (!childRoomId || !parentRoomId) return { error: "Dados inválidos." };
 
@@ -130,10 +134,19 @@ export async function setChildRoomGroup(formData) {
 
   // 3. Tudo certo, atualizar o grupo
   try {
+    const nomeGrupo = group === "" ? null : group;
+    const corGrupo = nomeGrupo ? groupColor : null;
     const atualizada = await prisma.room.update({
       where: { id: childRoomId },
-      data: { group: group === "" ? null : group },
+      data: { group: nomeGrupo, groupColor: corGrupo },
     });
+    // A cor é da região: aplica também às salas irmãs que estão na mesma região.
+    if (nomeGrupo && corGrupo) {
+      await prisma.room.updateMany({
+        where: { parentId: parentRoomId, group: nomeGrupo, id: { not: childRoomId } },
+        data: { groupColor: corGrupo },
+      });
+    }
     const pai = await prisma.room.findUnique({ where: { id: parentRoomId }, select: { slug: true } });
     if (pai?.slug) revalidatePath(`/dashboard/${pai.slug}`);
     revalidatePath(`/dashboard/${childRoom.slug}`); // Revalida a filha
@@ -142,6 +155,7 @@ export async function setChildRoomGroup(formData) {
       success: true,
       message: `Região de "${childRoom.name}" atualizada!`,
       group: atualizada.group,
+      groupColor: atualizada.groupColor,
     };
   } catch (error) {
     return { error: "Erro ao atualizar o grupo." };
@@ -153,17 +167,43 @@ export async function setChildRoomGroup(formData) {
 export async function createRoom(formData) {
   const { userId } = await auth();
   if (!userId) return { error: "Não autorizado" };
-  const name = formData.get("name");
+  const name = String(formData.get("name") ?? "").trim();
   const type = formData.get("type");
   const color = formData.get("color");
   const parentId = formData.get("parentId") || null;
-  const slug = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-').replace(/[^\w\-]+/g, '') + '-' + Math.floor(Math.random() * 10000);
+  if (!name) return { error: "Informe o nome da sala." };
+  const slug =
+    name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/[^\w\-]+/g, "") +
+    "-" +
+    Math.floor(Math.random() * 10000);
+
   try {
-    const newRoom = await prisma.room.create({ data: { name, slug, type, color, parentId: parentId === "" ? null : parentId } });
-    await prisma.member.create({ data: { userId, roomId: newRoom.id, role: 'OWNER' } });
-    revalidatePath('/dashboard');
-    redirect(`/dashboard/${slug}`);
-  } catch (error) { return { error: "Erro ao criar sala." }; }
+    const newRoom = await prisma.room.create({
+      data: { name, slug, type, color, parentId: parentId === "" ? null : parentId },
+    });
+    await prisma.member.create({ data: { userId, roomId: newRoom.id, role: "OWNER" } });
+    revalidatePath("/dashboard");
+    // Devolve a sala criada: o formulário limpa sozinho e permite criar várias
+    // seguidas, sem recarregar a página e sem ficar preso em "Criando…".
+    return {
+      success: true,
+      room: {
+        id: newRoom.id,
+        name: newRoom.name,
+        slug: newRoom.slug,
+        type: newRoom.type,
+        color: newRoom.color,
+      },
+    };
+  } catch (error) {
+    console.error("createRoom:", error);
+    return { error: "Erro ao criar sala." };
+  }
 }
 
 // ATUALIZAR SALA (Para salvar o Grupo/Região)
@@ -203,7 +243,7 @@ export async function getRoomEvents(roomId, monitorMode = false, incluirFilhos =
 
   if (!room) return [];
 
-  // 1. IDs dos Pais (Para cascata global)
+  // 1. IDs dos Pais (para a cascata global, em qualquer nível)
   const parentIds = [];
   if (room.parent) {
       let currentParent = room.parent;
@@ -215,16 +255,31 @@ export async function getRoomEvents(roomId, monitorMode = false, incluirFilhos =
       }
   }
 
-  // 2. IDs dos Filhos diretos
-  const childrenIds = room.children.map(c => c.id);
+  // 2. IDs de TODOS os descendentes (filhos, netos, bisnetos...). O evento de
+  // um setor/pai vale para a árvore inteira, não só para os filhos diretos.
+  const todasAsSalas = await prisma.room.findMany({ select: { id: true, parentId: true } });
+  const porPai = new Map();
+  for (const sala of todasAsSalas) {
+    if (!sala.parentId) continue;
+    if (!porPai.has(sala.parentId)) porPai.set(sala.parentId, []);
+    porPai.get(sala.parentId).push(sala.id);
+  }
+  const childrenIds = [];
+  const fila = [...(porPai.get(room.id) ?? [])];
+  while (fila.length > 0) {
+    const id = fila.shift();
+    childrenIds.push(id);
+    fila.push(...(porPai.get(id) ?? []));
+  }
 
   // 3. CONSTRUÇÃO DO FILTRO (A parte mais importante)
   const orClauses = [
     // A. Meus próprios eventos
     { roomId: room.id }, 
     
-    // C. Eventos DIRECIONADOS para mim (Push)
-    { targetRooms: { some: { id: room.id } } }
+    // C. Eventos DIRECIONADOS para mim ou para qualquer ancestral meu.
+    // Assim um evento repassado ao setor chega também às congregações abaixo.
+    { targetRooms: { some: { id: { in: [room.id, ...parentIds] } } } }
   ];
 
   // B. Eventos dos Pais marcados com cascata (Global)
@@ -236,10 +291,10 @@ export async function getRoomEvents(roomId, monitorMode = false, incluirFilhos =
   // D. Lógica de VISIBILIDADE DOS FILHOS (opcional no link público)
   if (incluirFilhos && childrenIds.length > 0) {
       if (monitorMode) {
-         // MODO MONITOR: Vejo TUDO dos filhos (congregacoes)
+         // MODO MONITOR: Vejo TUDO dos descendentes (congregações)
          orClauses.push({ roomId: { in: childrenIds } });
       } else {
-         // MODO NORMAL: Só vejo o que o filho permitiu (visibleToParent = true)
+         // MODO NORMAL: Só vejo o que o descendente permitiu (visibleToParent = true)
          orClauses.push({ roomId: { in: childrenIds }, visibleToParent: true });
       }
   }
@@ -259,7 +314,29 @@ include: {
 
   });
 
-  return events;
+  // Versões antigas do repasse criavam cópias do mesmo evento em várias salas.
+  // Aqui eliminamos repetições idênticas (título + período) para que o setor não
+  // veja a mesma atividade várias vezes ao abrir todas as filhas. O repasse novo
+  // é recursivo: um evento só, visível para a árvore inteira.
+  const unicos = new Map();
+  for (const evento of events) {
+    const assinatura = [
+      evento.title,
+      new Date(evento.start).toISOString(),
+      new Date(evento.end).toISOString(),
+      evento.allDay ? "1" : "0",
+      evento.rrule ?? "",
+    ].join("|");
+    const atual = unicos.get(assinatura);
+    if (!atual) {
+      unicos.set(assinatura, evento);
+    } else if (evento.roomId === roomId && atual.roomId !== roomId) {
+      // Prefere a versão "dona" da agenda aberta.
+      unicos.set(assinatura, evento);
+    }
+  }
+
+  return [...unicos.values()];
 }
 
   

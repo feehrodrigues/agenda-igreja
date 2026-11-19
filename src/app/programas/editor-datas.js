@@ -48,14 +48,14 @@ function diasDaSemana(dias, semana) {
   });
 }
 
-function Celula({ chave, selecionado, usado, hoje, eventos = [], onClick }) {
+function Celula({ chave, selecionado, usado, hoje, eventos = [], onClick, bloqueado = false }) {
   const data = deChave(chave);
   const diaSemana = data.getUTCDay();
   const numero = data.getUTCDate();
   const agendaTexto = eventos
     .map((e) => `📌 ${e.titulo}${e.hora ? ` (${e.hora}${e.horaFim ? `–${e.horaFim}` : ""})` : ""}`)
     .join(" · ");
-  const titulo = `${DIAS_LONGOS[diaSemana]}, ${numero} de ${MESES[data.getUTCMonth()].toLowerCase()}${usado ? " · já tem pedido" : ""}${agendaTexto ? `\nAgenda do pai: ${agendaTexto}` : ""}`;
+  const titulo = `${DIAS_LONGOS[diaSemana]}, ${numero} de ${MESES[data.getUTCMonth()].toLowerCase()}${usado ? " · já tem pedido" : ""}${agendaTexto ? `\nEvento do setor (bloqueado): ${agendaTexto}` : ""}`;
 
   return (
     <button
@@ -63,12 +63,15 @@ function Celula({ chave, selecionado, usado, hoje, eventos = [], onClick }) {
       onClick={onClick}
       title={titulo}
       aria-pressed={selecionado}
+      aria-disabled={bloqueado && !selecionado}
       className={`relative grid h-9 place-items-center rounded-lg border text-sm font-bold tabular-nums transition sm:h-10 ${
         selecionado
           ? "border-emerald-500 bg-emerald-500 text-white shadow-sm hover:bg-emerald-600"
-          : diaSemana === 0 || diaSemana === 6
-            ? "border-slate-200 bg-slate-100 text-slate-500 hover:border-slate-300 hover:bg-white"
-            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+          : bloqueado
+            ? "cursor-not-allowed border-rose-300 bg-rose-50 text-rose-700"
+            : diaSemana === 0 || diaSemana === 6
+              ? "border-slate-200 bg-slate-100 text-slate-500 hover:border-slate-300 hover:bg-white"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
       } ${hoje ? "ring-2 ring-indigo-400 ring-offset-1" : ""}`}
     >
       {numero}
@@ -88,11 +91,13 @@ function Celula({ chave, selecionado, usado, hoje, eventos = [], onClick }) {
           {eventos.slice(0, 3).map((evento) => (
             <i
               key={evento.id}
-              className={`block h-1 w-1 rounded-full ${selecionado ? "bg-white/90" : "bg-indigo-500"}`}
+              className={`block h-1 w-1 rounded-full ${
+                selecionado ? "bg-white/90" : bloqueado ? "bg-rose-500" : "bg-indigo-500"
+              }`}
             />
           ))}
           {eventos.length > 3 && (
-            <span className={`text-[7px] font-black ${selecionado ? "text-white/90" : "text-indigo-500"}`}>
+            <span className={`text-[7px] font-black ${selecionado ? "text-white/90" : "text-rose-500"}`}>
               +{eventos.length - 3}
             </span>
           )}
@@ -188,12 +193,19 @@ export function EditorDatas({
   const hoje = useMemo(() => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }), []);
   const diasUsados = useMemo(() => new Set(usadas.map((d) => String(d).slice(0, 10))), [usadas]);
   const agendaMap = useMemo(() => agendaPorDia(agenda), [agenda]);
+  const bloqueado = (chave) => (agendaMap.get(chave)?.length ?? 0) > 0;
+  const diasBloqueados = useMemo(
+    () => agenda.filter((evento) => evento?.dia).map((evento) => evento.dia),
+    [agenda],
+  );
 
   const alterado =
     sel.size !== salvas.size || [...sel].some((chave) => !salvas.has(chave));
   const removidasComPedido = [...salvas].filter((chave) => !sel.has(chave) && diasUsados.has(chave));
 
   function alternarData(chave) {
+    // Dia com evento do setor fica bloqueado: não pode ser liberado.
+    if (bloqueado(chave) && !sel.has(chave)) return;
     setEstado(null);
     setSel((atual) => {
       const novo = new Set(atual);
@@ -208,6 +220,7 @@ export function EditorDatas({
     setSel((atual) => {
       const novo = new Set(atual);
       for (const chave of dias) {
+        if (incluir && bloqueado(chave)) continue;
         if (incluir) novo.add(chave);
         else novo.delete(chave);
       }
@@ -248,6 +261,13 @@ export function EditorDatas({
             <p className="mt-2 text-xs text-slate-500">
               Nenhuma data marcada → todos os dias do período ficam liberados.
             </p>
+            {diasBloqueados.length > 0 && (
+              <p className="mt-2 flex items-start gap-1.5 text-xs font-bold text-rose-700">
+                <span aria-hidden="true">●</span>
+                {diasBloqueados.length} dia(s) em vermelho já têm evento do setor e ficam bloqueados
+                automaticamente para as congregações.
+              </p>
+            )}
           </div>
           <div className="flex w-fit items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
             <span className="text-2xl font-black tabular-nums text-slate-900">{sel.size}</span>
@@ -349,6 +369,7 @@ export function EditorDatas({
                       usado={diasUsados.has(chave)}
                       hoje={chave === hoje}
                       eventos={agendaMap.get(chave) ?? []}
+                      bloqueado={bloqueado(chave)}
                       onClick={() => alternarData(chave)}
                     />
                   ) : (
@@ -401,10 +422,10 @@ export function EditorDatas({
           {agenda.length > 0 && (
             <span className="flex items-center gap-1.5">
               <span className="flex items-center gap-0.5" aria-hidden="true">
-                <span className="h-1 w-1 rounded-full bg-indigo-500" />
-                <span className="h-1 w-1 rounded-full bg-indigo-500" />
+                <span className="h-1 w-1 rounded-full bg-rose-500" />
+                <span className="h-1 w-1 rounded-full bg-rose-500" />
               </span>
-              agenda do pai
+              evento do setor (bloqueado)
             </span>
           )}
         </div>

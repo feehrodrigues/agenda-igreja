@@ -79,17 +79,20 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   const weekRef = useRef(null);
   const [weekGenerating, setWeekGenerating] = useState(false);
 
-  // Atualização Automática
+  // Mantém a agenda pública atualizada sem o visitante recarregar a página.
   useEffect(() => {
-    const handleFocus = () => router.refresh();
-    window.addEventListener('focus', handleFocus);
-    const interval = setInterval(() => router.refresh(), 30000);
+    const atualizar = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') router.refresh();
+    };
+    window.addEventListener('focus', atualizar);
+    const intervalo = setInterval(atualizar, 30000);
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      clearInterval(interval);
+      window.removeEventListener('focus', atualizar);
+      clearInterval(intervalo);
     };
   }, [router]);
 
+  // Atualização Automática (ao voltar o foco e a cada 30s).
   useEffect(() => {
     if (window.innerWidth < 768) setView('agenda');
     else setView('month');
@@ -127,11 +130,13 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       return filteredEvents.filter(ev => isSameMonth(ev.start, currentDate)).sort((a, b) => a.start - b.start);
   }, [filteredEvents, currentDate]);
 
-  // --- AGENDA SEMANAL ---
+  // --- AGENDA SEMANAL (segunda → domingo) ---
   const semana = useMemo(() => {
       const base = new Date(weekAnchor);
       base.setHours(12, 0, 0, 0);
-      base.setDate(base.getDate() - base.getDay());
+      // 0 = domingo; recua até a segunda-feira da semana.
+      const deslocamento = (base.getDay() + 6) % 7;
+      base.setDate(base.getDate() - deslocamento);
       return Array.from({ length: 7 }, (_, i) => {
           const d = new Date(base);
           d.setDate(base.getDate() + i);
@@ -161,23 +166,50 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   };
 
   const textoDaSemana = () => {
-      const linhas = [`${room.name} — Agenda da semana`, tituloDaSemana(), ''];
+      const linhas = [`*${room.name}*`, `_Agenda da semana · ${tituloDaSemana()}_`, ''];
       semana.forEach((dia) => {
-          linhas.push(`• ${dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' })}`);
+          linhas.push(`*${dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' })}*`);
           const doDia = eventosDoDia(dia);
-          if (doDia.length === 0) linhas.push('  (sem eventos)');
+          if (doDia.length === 0) linhas.push('_Sem eventos_');
           doDia.forEach((ev) => {
-              const hora = ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
-              const local = ev.resource?.roomName ? ` — ${ev.resource.roomName}` : '';
-              linhas.push(`  ${hora} · ${ev.title}${local}`);
+              const hora = ev.allDay ? 'Dia todo' : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
+              const local = ev.resource?.roomName && ev.resource.isExternal ? ` (${ev.resource.roomName})` : '';
+              linhas.push(`• ${hora} — ${ev.title}${local}`);
           });
           linhas.push('');
       });
+      linhas.push('_Enviado pela Agenda Igreja_');
       return linhas.join('\n');
   };
 
+  const [textoCopiado, setTextoCopiado] = useState(false);
+
+  const copiarTextoDaSemana = async () => {
+      const texto = textoDaSemana();
+      try {
+          await navigator.clipboard.writeText(texto);
+          setTextoCopiado(true);
+          setTimeout(() => setTextoCopiado(false), 2500);
+      } catch {
+          // Fallback para navegadores sem permissão de clipboard.
+          const area = document.createElement('textarea');
+          area.value = texto;
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          document.body.removeChild(area);
+          setTextoCopiado(true);
+          setTimeout(() => setTextoCopiado(false), 2500);
+      }
+  };
+
+  const abrirWhatsApp = () => {
+      const url = `https://wa.me/?text=${encodeURIComponent(textoDaSemana())}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const baixarTextoDaSemana = () => {
-      const blob = new Blob([textoDaSemana()], { type: 'text/plain;charset=utf-8' });
+      const blob = new Blob([textoDaSemana().replace(/\*/g, '').replace(/_/g, '')], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -188,33 +220,124 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
   const baixarPDFDaSemana = () => {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const largura = doc.internal.pageSize.getWidth();
+      const altura = doc.internal.pageSize.getHeight();
       const margem = 14;
-      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-      doc.text(room.name, margem, 18);
-      doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(90);
-      doc.text(`Agenda da semana · ${tituloDaSemana()}`, margem, 25);
-      let y = 32;
-      semana.forEach((dia) => {
-          const doDia = eventosDoDia(dia);
-          doc.setTextColor(20); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-          if (y > 270) { doc.addPage(); y = 18; }
-          doc.text(dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' }), margem, y);
-          y += 5;
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60);
-          if (doDia.length === 0) {
-              doc.text('Sem eventos', margem + 4, y);
-              y += 6;
+      const [r, g, b] = hexToRgb(room.color || '#3b82f6');
+      const DIAS_CURTOS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
+
+      // Faixa de cabeçalho com a cor da sala.
+      doc.setFillColor(r, g, b);
+      doc.rect(0, 0, largura, 30, 'F');
+      doc.setTextColor(255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text(room.name, margem, 15);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(`Agenda da semana · ${tituloDaSemana()}`, margem, 23);
+
+      // Marca discreta à direita.
+      doc.setFontSize(8);
+      doc.text('AGENDA IGREJA', largura - margem, 15, { align: 'right' });
+
+      let y = 40;
+      const larguraConteudo = largura - margem * 2;
+
+      const novaPaginaSePreciso = (necessario) => {
+          if (y + necessario > altura - 18) {
+              doc.addPage();
+              y = 18;
           }
+      };
+
+      semana.forEach((dia, indice) => {
+          const doDia = eventosDoDia(dia);
+          // Estimativa de altura do bloco (dia + eventos).
+          const alturaEventos = doDia.reduce((soma, ev) => {
+              const linhas = doc.splitTextToSize(
+                  `${ev.title}${ev.description ? ` — ${ev.description}` : ''}`,
+                  larguraConteudo - 36,
+              ).length;
+              return soma + 6 + Math.max(0, linhas - 1) * 4.5;
+          }, 0);
+          novaPaginaSePreciso(12 + alturaEventos + 4);
+
+          // Cabeçalho do dia.
+          doc.setFillColor(248, 250, 252);
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(margem, y, larguraConteudo, 9, 2, 2, 'FD');
+
+          doc.setFillColor(r, g, b);
+          doc.roundedRect(margem + 1.5, y + 1.5, 16, 6, 1.5, 1.5, 'F');
+          doc.setTextColor(255);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.text(DIAS_CURTOS[indice], margem + 9.5, y + 5.6, { align: 'center' });
+
+          doc.setTextColor(30);
+          doc.setFontSize(10);
+          doc.text(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 21, y + 6);
+
+          const hoje = chaveDiaSP(dia) === chaveDiaSP(new Date());
+          if (hoje) {
+              doc.setFillColor(r, g, b);
+              doc.circle(largura - margem - 4, y + 4.5, 1.6, 'F');
+          }
+          y += 12;
+
+          if (doDia.length === 0) {
+              doc.setTextColor(150);
+              doc.setFont('helvetica', 'italic');
+              doc.setFontSize(9);
+              doc.text('Sem eventos', margem + 6, y);
+              y += 8;
+          }
+
           doDia.forEach((ev) => {
-              if (y > 275) { doc.addPage(); y = 18; }
-              const hora = ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
-              const linha = `${hora}  ${ev.title}${ev.description ? ` — ${ev.description}` : ''}`;
-              const quebradas = doc.splitTextToSize(linha, 178);
-              doc.text(quebradas, margem + 4, y);
-              y += 4.5 * quebradas.length;
+              const tituloLinhas = doc.splitTextToSize(
+                  `${ev.title}${ev.description ? ` — ${ev.description}` : ''}`,
+                  larguraConteudo - 38,
+              );
+              novaPaginaSePreciso(6 + (tituloLinhas.length - 1) * 4.5 + 4);
+
+              const hora = ev.allDay ? 'Dia todo' : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(8);
+              doc.setTextColor(90);
+              doc.text(hora, margem + 6, y);
+
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(9);
+              doc.setTextColor(30);
+              doc.text(tituloLinhas, margem + 36, y);
+              y += (tituloLinhas.length - 1) * 4.5 + 6;
+
+              const local = ev.resource?.roomName && ev.resource.isExternal ? ev.resource.roomName : null;
+              if (local) {
+                  doc.setFont('helvetica', 'normal');
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(130);
+                  doc.text(`Local: ${local}`, margem + 36, y - 1);
+                  y += 3;
+              }
           });
           y += 3;
       });
+
+      // Rodapé simples.
+      const paginas = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= paginas; i++) {
+          doc.setPage(i);
+          doc.setDrawColor(235, 235, 235);
+          doc.line(margem, altura - 12, largura - margem, altura - 12);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(150);
+          doc.text(`${room.name} · gerado em ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, margem, altura - 7);
+          doc.text(`${i}/${paginas}`, largura - margem, altura - 7, { align: 'right' });
+      }
+
       doc.save(`agenda-semana-${room.slug}.pdf`);
   };
 
@@ -587,11 +710,15 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
               <button onClick={baixarPDFDaSemana} className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 text-white px-3 py-2.5 text-xs font-bold hover:bg-blue-700 transition"><FileText size={16}/> PDF</button>
               <button onClick={baixarJPGDaSemana} disabled={weekGenerating} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white px-3 py-2.5 text-xs font-bold hover:bg-emerald-700 transition disabled:opacity-50"><Download size={16}/> {weekGenerating ? 'Gerando…' : 'JPG'}</button>
-              <button onClick={baixarTextoDaSemana} className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white px-3 py-2.5 text-xs font-bold hover:bg-slate-700 transition"><AlignLeft size={16}/> Texto</button>
+              <button onClick={copiarTextoDaSemana} className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white px-3 py-2.5 text-xs font-bold hover:bg-slate-700 transition"><AlignLeft size={16}/> {textoCopiado ? 'Copiado!' : 'Copiar texto'}</button>
+              <button onClick={abrirWhatsApp} className="flex items-center justify-center gap-2 rounded-xl bg-[#25D366] text-white px-3 py-2.5 text-xs font-bold hover:bg-[#1ebe5b] transition"><Share2 size={16}/> WhatsApp</button>
             </div>
+            <button onClick={baixarTextoDaSemana} className="mt-2 w-full text-center text-[11px] font-bold text-slate-400 hover:text-slate-600">
+              Baixar texto (.txt)
+            </button>
           </div>
         </div>
       )}

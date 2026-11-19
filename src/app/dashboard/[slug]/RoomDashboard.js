@@ -364,9 +364,12 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
 }
 
 // Componente Auxiliar para o Card de Gestão de Grupo
+const CORES_REGIAO = ["#6366f1", "#0d9488", "#d97706", "#db2777", "#0284c7", "#7c3aed", "#65a30d", "#dc2626"];
+
 function GroupManagerCard({ child, parentId }) {
   const [isEditing, setIsEditing] = useState(false);
   const [group, setGroup] = useState(child.group || "");
+  const [cor, setCor] = useState(child.groupColor || CORES_REGIAO[0]);
   const [erro, setErro] = useState("");
   const [salvo, setSalvo] = useState(false);
   const [pendente, iniciarTransicao] = useTransition();
@@ -379,12 +382,14 @@ function GroupManagerCard({ child, parentId }) {
       dados.append("childRoomId", child.id);
       dados.append("parentRoomId", parentId);
       dados.append("group", group);
+      dados.append("groupColor", cor);
       const resultado = await setChildRoomGroup(dados);
       if (resultado?.error) {
         setErro(resultado.error);
         return;
       }
       setGroup(resultado?.group ?? group);
+      setCor(resultado?.groupColor ?? cor);
       setIsEditing(false);
       setSalvo(true);
       setTimeout(() => setSalvo(false), 2500);
@@ -394,11 +399,18 @@ function GroupManagerCard({ child, parentId }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all group">
       <div className="flex items-start justify-between mb-4">
-        <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400">
+        <div
+          className="w-12 h-12 rounded-xl flex items-center justify-center text-white"
+          style={{ backgroundColor: group ? cor : "#e2e8f0" }}
+        >
           <MapPin size={24} />
         </div>
-        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${group ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
-          {group || "Sem Grupo"}
+        <span
+          className="px-3 py-1 rounded-full text-[10px] font-black uppercase flex items-center gap-1.5"
+          style={group ? { backgroundColor: `${cor}1a`, color: cor } : { backgroundColor: "#f1f5f9", color: "#94a3b8" }}
+        >
+          {group && <i className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: cor }} />}
+          {group || "Sem região"}
         </span>
       </div>
 
@@ -421,6 +433,24 @@ function GroupManagerCard({ child, parentId }) {
             value={group}
             onChange={(e) => setGroup(e.target.value)}
           />
+          <div>
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Cor da região
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {CORES_REGIAO.map((c) => (
+                <button
+                  type="button"
+                  key={c}
+                  onClick={() => setCor(c)}
+                  title={c}
+                  aria-label={`Cor ${c}`}
+                  className={`h-7 w-7 rounded-full border-2 transition ${cor === c ? "border-slate-900 scale-110" : "border-white"}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
           <div className="flex gap-2">
             <button type="submit" disabled={pendente} className="flex-1 bg-blue-600 text-white text-xs font-bold py-2 rounded-lg disabled:opacity-60">
               {pendente ? "Salvando…" : "Salvar"}
@@ -435,7 +465,7 @@ function GroupManagerCard({ child, parentId }) {
           onClick={() => setIsEditing(true)}
           className="w-full py-2 bg-slate-50 text-slate-600 rounded-lg text-xs font-bold border border-slate-100 hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
         >
-          <Target size={14} /> {group ? "Alterar região" : "Definir região"}
+          <Target size={14} /> {group ? "Alterar região e cor" : "Definir região"}
         </button>
       )}
     </div>
