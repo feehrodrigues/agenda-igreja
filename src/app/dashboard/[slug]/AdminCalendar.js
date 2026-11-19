@@ -55,7 +55,7 @@ const CustomToolbar = (toolbar) => (
             <span className="text-sm md:text-lg font-black text-slate-800 capitalize">{format(toolbar.date, 'MMMM yyyy', { locale: ptBR })}</span>
             <div className="flex p-1 bg-slate-100 rounded-xl">
                 {['month', 'week', 'day', 'agenda'].map((v) => (
-                    <button key={v} onClick={() => { toolbar.onView(v); setView(v); }} className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${view === v ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
+                    <button key={v} onClick={() => { toolbar.onView(v); }} className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${toolbar.view === v ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
                         {v === 'month' ? 'Mês' : v === 'week' ? 'Semana' : v === 'day' ? 'Dia' : 'Lista'}
                     </button>
                 ))}
