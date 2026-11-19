@@ -432,49 +432,34 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, 1080, 1080);
 
-          // Cabeçalho com cor da sala.
-          const [r, g, b] = hexToRgb(room.color || '#3b82f6');
-          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-          ctx.fillRect(0, 0, 1080, 140);
-
-          // Ondinha no cabeçalho.
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-          ctx.beginPath();
-          ctx.moveTo(0, 140);
-          for (let x = 0; x <= 1080; x += 2) {
-              const t = x / 1080;
-              const yy = 140 - 8 * Math.sin(t * Math.PI);
-              ctx.lineTo(x, yy);
-          }
-          ctx.lineTo(1080, 140);
-          ctx.lineTo(0, 140);
-          ctx.closePath();
-          ctx.fill();
+          // Cabeçalho slate-800 (padrão, mesmo do PDF).
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(0, 0, 1080, 130);
 
           // Nome da sala.
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 52px Arial, sans-serif';
-          ctx.fillText(room.name, 50, 60);
+          ctx.font = 'bold 48px Arial, sans-serif';
+          ctx.fillText(room.name, 50, 55);
 
           // Subtítulo.
-          ctx.font = '26px Arial, sans-serif';
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.fillText('Agenda da Semana', 50, 95);
+          ctx.font = '22px Arial, sans-serif';
+          ctx.fillStyle = '#94a3b8';
+          ctx.fillText('Agenda da Semana', 50, 85);
 
           // Data da semana.
-          ctx.font = '20px Arial, sans-serif';
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-          ctx.fillText(tituloDaSemana(), 50, 125);
+          ctx.font = '18px Arial, sans-serif';
+          ctx.fillStyle = '#64748b';
+          ctx.fillText(tituloDaSemana(), 50, 112);
 
           // Marca.
           ctx.font = '16px Arial, sans-serif';
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.fillStyle = '#64748b';
           ctx.textAlign = 'right';
-          ctx.fillText('AgendaIgreja', 1030, 60);
+          ctx.fillText('AgendaIgreja', 1030, 55);
           ctx.textAlign = 'left';
 
           // Dias e eventos.
-          let yPos = 160;
+          let yPos = 150;
           const margem = 50;
           const larguraConteudo = 1080 - margem * 2;
           const DIAS_CURTOS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
@@ -484,25 +469,25 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
               // Cabeçalho do dia.
               ctx.fillStyle = '#f1f5f9';
-              ctx.fillRect(margem, yPos, larguraConteudo, 44);
+              ctx.fillRect(margem, yPos, larguraConteudo, 42);
               ctx.fillStyle = '#1e293b';
-              ctx.fillRect(margem + 4, yPos + 4, 44, 36);
+              ctx.fillRect(margem + 4, yPos + 4, 42, 34);
               ctx.fillStyle = '#ffffff';
-              ctx.font = 'bold 14px Arial, sans-serif';
+              ctx.font = 'bold 13px Arial, sans-serif';
               ctx.textAlign = 'center';
-              ctx.fillText(DIAS_CURTOS[indice], margem + 26, yPos + 28);
+              ctx.fillText(DIAS_CURTOS[indice], margem + 25, yPos + 27);
               ctx.textAlign = 'left';
               ctx.fillStyle = '#1e293b';
-              ctx.font = 'bold 22px Arial, sans-serif';
-              ctx.fillText(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 56, yPos + 30);
+              ctx.font = 'bold 20px Arial, sans-serif';
+              ctx.fillText(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 56, yPos + 28);
 
-              yPos += 50;
+              yPos += 48;
 
               if (doDia.length === 0) {
                   ctx.fillStyle = '#94a3b8';
                   ctx.font = 'italic 16px Arial, sans-serif';
-                  ctx.fillText('Sem eventos', margem + 10, yPos + 20);
-                  yPos += 30;
+                  ctx.fillText('Sem eventos', margem + 10, yPos + 18);
+                  yPos += 28;
               } else {
                   doDia.forEach((ev) => {
                       const marcaPai = ev.resource?.origem === 'pai';
@@ -510,39 +495,36 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
                       if (marcaPai) {
                           ctx.fillStyle = '#fefce8';
-                          ctx.fillRect(margem + 8, yPos - 5, larguraConteudo - 8, 35);
-                          // Barra lateral âmbar.
-                          ctx.fillStyle = '#fbbf24';
-                          ctx.fillRect(margem + 8, yPos - 5, 4, 35);
+                          ctx.fillRect(margem + 8, yPos - 4, larguraConteudo - 8, 32);
                       }
 
                       ctx.fillStyle = marcaPai ? '#92400e' : '#475569';
                       ctx.font = 'bold 14px Arial, sans-serif';
-                      ctx.fillText(hora, margem + 20, yPos + 16);
+                      ctx.fillText(hora, margem + 16, yPos + 16);
 
                       ctx.fillStyle = '#1e293b';
-                      ctx.font = marcaPai ? 'italic bold 17px Arial, sans-serif' : 'bold 17px Arial, sans-serif';
+                      ctx.font = marcaPai ? 'italic bold 16px Arial, sans-serif' : 'bold 16px Arial, sans-serif';
                       ctx.fillText(ev.title, margem + 130, yPos + 16);
 
                       if (marcaPai && ev.resource?.roomName && ev.resource.isExternal) {
                           ctx.fillStyle = '#92400e';
                           ctx.font = 'bold 12px Arial, sans-serif';
-                          ctx.fillText(ev.resource.roomName, margem + 130, yPos + 34);
-                          yPos += 12;
+                          ctx.fillText(ev.resource.roomName, margem + 130, yPos + 32);
+                          yPos += 10;
                       }
 
-                      yPos += 35;
+                      yPos += 32;
                   });
               }
-              yPos += 8;
+              yPos += 6;
           });
 
-          // Rodapé com onda.
+          // Rodapé com curva elegante.
           ctx.fillStyle = '#1e293b';
           ctx.moveTo(0, 1080);
           for (let x = 0; x <= 1080; x += 2) {
               const t = x / 1080;
-              const yy = 1080 - 4 - 24 * Math.sin(t * Math.PI * 0.5);
+              const yy = 1080 - 2 - 16 * Math.sin(t * Math.PI * 0.5);
               ctx.lineTo(x, yy);
           }
           ctx.lineTo(1080, 1080);
