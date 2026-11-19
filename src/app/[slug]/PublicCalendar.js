@@ -399,7 +399,10 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           doc.moveTo(0, altura);
           for (let x = 0; x <= largura; x += 0.5) {
               const t = x / largura;
-              const yy = altura - 2 - 18 * Math.pow(t, 0.5);
+              // Curva que começa em baixo, sobe com uma onda no meio, termina em cima.
+              const base = altura - 4 - 18 * t;
+              const onda = 10 * Math.sin(t * Math.PI);
+              const yy = base + onda;
               doc.lineTo(x, yy);
           }
           doc.lineTo(largura, altura);
