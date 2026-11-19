@@ -424,7 +424,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           }
           doc.lineTo(largura, altura);
           doc.lineTo(0, altura);
-          doc.closePath();
+          doc.close();
           doc.fill();
           // Texto do rodapé.
           doc.setFont('helvetica', 'normal');
