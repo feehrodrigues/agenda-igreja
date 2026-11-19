@@ -423,7 +423,6 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       if (!weekRef.current) return;
       setWeekGenerating(true);
       try {
-          // Gera o JPG usando canvas (sem html2canvas, que não suporta lab() do Tailwind v4).
           const canvas = document.createElement('canvas');
           canvas.width = 1080;
           canvas.height = 1080;
@@ -433,22 +432,50 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, 1080, 1080);
 
-          // Cabeçalho.
+          // Cabeçalho com cor da sala.
           const [r, g, b] = hexToRgb(room.color || '#3b82f6');
           ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-          ctx.fillRect(0, 0, 1080, 120);
+          ctx.fillRect(0, 0, 1080, 140);
+
+          // Ondinha no cabeçalho.
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.beginPath();
+          ctx.moveTo(0, 140);
+          for (let x = 0; x <= 1080; x += 2) {
+              const t = x / 1080;
+              const yy = 140 - 8 * Math.sin(t * Math.PI);
+              ctx.lineTo(x, yy);
+          }
+          ctx.lineTo(1080, 140);
+          ctx.lineTo(0, 140);
+          ctx.closePath();
+          ctx.fill();
+
+          // Nome da sala.
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 48px Arial, sans-serif';
-          ctx.fillText(room.name, 40, 55);
-          ctx.font = '24px Arial, sans-serif';
-          ctx.fillStyle = '#e2e8f0';
-          ctx.fillText('Agenda da Semana', 40, 85);
+          ctx.font = 'bold 52px Arial, sans-serif';
+          ctx.fillText(room.name, 50, 60);
+
+          // Subtítulo.
+          ctx.font = '26px Arial, sans-serif';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.fillText('Agenda da Semana', 50, 95);
+
+          // Data da semana.
           ctx.font = '20px Arial, sans-serif';
-          ctx.fillText(tituloDaSemana(), 40, 110);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+          ctx.fillText(tituloDaSemana(), 50, 125);
+
+          // Marca.
+          ctx.font = '16px Arial, sans-serif';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.textAlign = 'right';
+          ctx.fillText('AgendaIgreja', 1030, 60);
+          ctx.textAlign = 'left';
 
           // Dias e eventos.
-          let yPos = 140;
-          const margem = 40;
+          let yPos = 160;
+          const margem = 50;
           const larguraConteudo = 1080 - margem * 2;
           const DIAS_CURTOS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
 
@@ -457,19 +484,19 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
               // Cabeçalho do dia.
               ctx.fillStyle = '#f1f5f9';
-              ctx.fillRect(margem, yPos, larguraConteudo, 40);
+              ctx.fillRect(margem, yPos, larguraConteudo, 44);
               ctx.fillStyle = '#1e293b';
-              ctx.fillRect(margem + 4, yPos + 4, 40, 32);
+              ctx.fillRect(margem + 4, yPos + 4, 44, 36);
               ctx.fillStyle = '#ffffff';
               ctx.font = 'bold 14px Arial, sans-serif';
               ctx.textAlign = 'center';
-              ctx.fillText(DIAS_CURTOS[indice], margem + 24, yPos + 26);
+              ctx.fillText(DIAS_CURTOS[indice], margem + 26, yPos + 28);
               ctx.textAlign = 'left';
               ctx.fillStyle = '#1e293b';
-              ctx.font = 'bold 20px Arial, sans-serif';
-              ctx.fillText(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 52, yPos + 27);
+              ctx.font = 'bold 22px Arial, sans-serif';
+              ctx.fillText(dataSP(dia, { day: '2-digit', month: 'long' }), margem + 56, yPos + 30);
 
-              yPos += 45;
+              yPos += 50;
 
               if (doDia.length === 0) {
                   ctx.fillStyle = '#94a3b8';
@@ -483,28 +510,31 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
                       if (marcaPai) {
                           ctx.fillStyle = '#fefce8';
-                          ctx.fillRect(margem + 8, yPos - 5, larguraConteudo - 8, 30);
+                          ctx.fillRect(margem + 8, yPos - 5, larguraConteudo - 8, 35);
+                          // Barra lateral âmbar.
+                          ctx.fillStyle = '#fbbf24';
+                          ctx.fillRect(margem + 8, yPos - 5, 4, 35);
                       }
 
                       ctx.fillStyle = marcaPai ? '#92400e' : '#475569';
                       ctx.font = 'bold 14px Arial, sans-serif';
-                      ctx.fillText(hora, margem + 10, yPos + 15);
+                      ctx.fillText(hora, margem + 20, yPos + 16);
 
                       ctx.fillStyle = '#1e293b';
-                      ctx.font = marcaPai ? 'italic bold 16px Arial, sans-serif' : 'bold 16px Arial, sans-serif';
-                      ctx.fillText(ev.title, margem + 120, yPos + 15);
+                      ctx.font = marcaPai ? 'italic bold 17px Arial, sans-serif' : 'bold 17px Arial, sans-serif';
+                      ctx.fillText(ev.title, margem + 130, yPos + 16);
 
                       if (marcaPai && ev.resource?.roomName && ev.resource.isExternal) {
                           ctx.fillStyle = '#92400e';
                           ctx.font = 'bold 12px Arial, sans-serif';
-                          ctx.fillText(ev.resource.roomName, margem + 120, yPos + 32);
-                          yPos += 10;
+                          ctx.fillText(ev.resource.roomName, margem + 130, yPos + 34);
+                          yPos += 12;
                       }
 
-                      yPos += 30;
+                      yPos += 35;
                   });
               }
-              yPos += 10;
+              yPos += 8;
           });
 
           // Rodapé com onda.
@@ -512,7 +542,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.moveTo(0, 1080);
           for (let x = 0; x <= 1080; x += 2) {
               const t = x / 1080;
-              const yy = 1080 - 4 - 20 * Math.sin(t * Math.PI * 0.5);
+              const yy = 1080 - 4 - 24 * Math.sin(t * Math.PI * 0.5);
               ctx.lineTo(x, yy);
           }
           ctx.lineTo(1080, 1080);
@@ -523,9 +553,9 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.fillStyle = '#ffffff';
           ctx.font = '14px Arial, sans-serif';
           ctx.textAlign = 'left';
-          ctx.fillText(`${room.name} · ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, 40, 1070);
+          ctx.fillText(`${room.name} · ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, 50, 1068);
           ctx.textAlign = 'right';
-          ctx.fillText('Página 1 de 1', 1040, 1070);
+          ctx.fillText('Página 1 de 1', 1030, 1068);
 
           const a = document.createElement('a');
           a.href = canvas.toDataURL('image/jpeg', 0.95);
