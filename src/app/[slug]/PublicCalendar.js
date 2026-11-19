@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { followRoom } from '@/app/actions';
@@ -17,6 +17,10 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas';
+import {
+  chaveDiaSP, dataSP, fimExclusivoSP, horaSP, inicioDoDiaSP, rotuloDiaTodo, rotuloPeriodoDiaTodo, somarDiasChave, ultimoDiaInclusivo,
+} from '@/lib/datas';
 
 const locales = { 'pt-BR': ptBR };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
@@ -47,7 +51,7 @@ const CustomEvent = ({ event }) => {
     );
 };
 
-export default function PublicCalendar({ room, events: serializableEvents, isFollowingInitially, isLoggedIn }) {
+export default function PublicCalendar({ room, events: serializableEvents, isFollowingInitially, isLoggedIn, incluirFilhos = false, temFilhos = false }) {
   const router = useRouter();
   
   // Estados
@@ -68,6 +72,12 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   });
   const [includeVisualCalendars, setIncludeVisualCalendars] = useState(true);
   const [copySuccess, setCopySuccess] = useState('');
+
+  // Agenda semanal (impressão em PDF, JPG e texto).
+  const [isWeekOpen, setIsWeekOpen] = useState(false);
+  const [weekAnchor, setWeekAnchor] = useState(new Date());
+  const weekRef = useRef(null);
+  const [weekGenerating, setWeekGenerating] = useState(false);
 
   // Atualização Automática
   useEffect(() => {
@@ -101,7 +111,8 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           let end = new Date(e.end);
           if (isNaN(end.getTime()) || end <= start) {
               end = new Date(start);
-              end.setHours(end.getHours() + 1);
+              if (e.allDay) end.setDate(end.getDate() + 1);
+              else end.setHours(end.getHours() + 1);
           }
           return { ...e, start, end };
       });
@@ -115,6 +126,114 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
   const monthEvents = useMemo(() => {
       return filteredEvents.filter(ev => isSameMonth(ev.start, currentDate)).sort((a, b) => a.start - b.start);
   }, [filteredEvents, currentDate]);
+
+  // --- AGENDA SEMANAL ---
+  const semana = useMemo(() => {
+      const base = new Date(weekAnchor);
+      base.setHours(12, 0, 0, 0);
+      base.setDate(base.getDate() - base.getDay());
+      return Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(base);
+          d.setDate(base.getDate() + i);
+          return d;
+      });
+  }, [weekAnchor]);
+
+  const eventosDoDia = (dia) => {
+      const chave = chaveDiaSP(dia);
+      const inicio = inicioDoDiaSP(chave);
+      const fim = inicioDoDiaSP(somarDiasChave(chave, 1));
+      return filteredEvents
+          .filter((ev) => {
+              if (ev.allDay) return new Date(ev.start) < fim && new Date(ev.end) > inicio;
+              return ev.start >= inicio && ev.start < fim;
+          })
+          .sort((a, b) => {
+              if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+              return a.start - b.start;
+          });
+  };
+
+  const tituloDaSemana = () => {
+      const ini = semana[0];
+      const fim = semana[6];
+      return `${dataSP(ini, { day: '2-digit', month: 'short' })} a ${dataSP(fim, { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  };
+
+  const textoDaSemana = () => {
+      const linhas = [`${room.name} — Agenda da semana`, tituloDaSemana(), ''];
+      semana.forEach((dia) => {
+          linhas.push(`• ${dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' })}`);
+          const doDia = eventosDoDia(dia);
+          if (doDia.length === 0) linhas.push('  (sem eventos)');
+          doDia.forEach((ev) => {
+              const hora = ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
+              const local = ev.resource?.roomName ? ` — ${ev.resource.roomName}` : '';
+              linhas.push(`  ${hora} · ${ev.title}${local}`);
+          });
+          linhas.push('');
+      });
+      return linhas.join('\n');
+  };
+
+  const baixarTextoDaSemana = () => {
+      const blob = new Blob([textoDaSemana()], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `agenda-semana-${room.slug}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+  };
+
+  const baixarPDFDaSemana = () => {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const margem = 14;
+      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
+      doc.text(room.name, margem, 18);
+      doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.setTextColor(90);
+      doc.text(`Agenda da semana · ${tituloDaSemana()}`, margem, 25);
+      let y = 32;
+      semana.forEach((dia) => {
+          const doDia = eventosDoDia(dia);
+          doc.setTextColor(20); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+          if (y > 270) { doc.addPage(); y = 18; }
+          doc.text(dataSP(dia, { weekday: 'long', day: '2-digit', month: 'long' }), margem, y);
+          y += 5;
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60);
+          if (doDia.length === 0) {
+              doc.text('Sem eventos', margem + 4, y);
+              y += 6;
+          }
+          doDia.forEach((ev) => {
+              if (y > 275) { doc.addPage(); y = 18; }
+              const hora = ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
+              const linha = `${hora}  ${ev.title}${ev.description ? ` — ${ev.description}` : ''}`;
+              const quebradas = doc.splitTextToSize(linha, 178);
+              doc.text(quebradas, margem + 4, y);
+              y += 4.5 * quebradas.length;
+          });
+          y += 3;
+      });
+      doc.save(`agenda-semana-${room.slug}.pdf`);
+  };
+
+  const baixarJPGDaSemana = async () => {
+      if (!weekRef.current) return;
+      setWeekGenerating(true);
+      try {
+          const canvas = await html2canvas(weekRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+          const a = document.createElement('a');
+          a.href = canvas.toDataURL('image/jpeg', 0.95);
+          a.download = `agenda-semana-${room.slug}.jpg`;
+          a.click();
+      } catch (e) {
+          console.error(e);
+          alert('Não foi possível gerar o JPG.');
+      } finally {
+          setWeekGenerating(false);
+      }
+  };
 
   const getEventsInRange = (startStr, endStr) => {
       const startDate = new Date(startStr); startDate.setUTCHours(0,0,0,0);
@@ -292,7 +411,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
         doc.text(title, 14, 28);
         
         const tableData = eventsToExport.map(ev => [
-            `${format(ev.start, 'dd/MM (EEE)', {locale: ptBR})}\n${ev.allDay ? 'Dia todo' : `${format(ev.start, 'HH:mm')} - ${format(ev.end, 'HH:mm')}`}`,
+            `${format(ev.start, 'dd/MM (EEE)', {locale: ptBR})}\n${ev.allDay ? `${rotuloDiaTodo(ev.start, ev.end)} (${rotuloPeriodoDiaTodo(ev.start, ev.end)})` : `${horaSP(ev.start)} - ${horaSP(ev.end)}`}`,
             ev.title + (ev.description ? `\nObs: ${ev.description}` : ''),
             ev.resource.roomName || room.name
         ]);
@@ -326,9 +445,9 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
         const eventsToExport = getEventsInRange(exportRange.start, exportRange.end);
         const data = eventsToExport.map(ev => ({
             'Data Início': format(ev.start, 'dd/MM/yyyy'),
-            'Hora Início': ev.allDay ? 'Dia todo' : format(ev.start, 'HH:mm'),
-            'Data Fim': format(ev.end, 'dd/MM/yyyy'),
-            'Hora Fim': ev.allDay ? 'Dia todo' : format(ev.end, 'HH:mm'),
+            'Hora Início': ev.allDay ? 'Dia todo' : horaSP(ev.start),
+            'Data Fim': ev.allDay ? (() => { const f = ultimoDiaInclusivo(chaveDiaSP(ev.end)); return format(inicioDoDiaSP(f), 'dd/MM/yyyy'); })() : format(ev.end, 'dd/MM/yyyy'),
+            'Hora Fim': ev.allDay ? 'Dia todo' : horaSP(ev.end),
             'Evento': ev.title,
             'Descrição': ev.description || '',
             'Local': ev.resource.roomName || room.name
@@ -374,6 +493,9 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
         <div className="max-w-5xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div><div className="leading-tight"><h1 className="text-base md:text-lg font-black text-slate-900 truncate max-w-[150px] md:max-w-md">{room.name}</h1><p className="text-[10px] text-slate-500 font-bold uppercase">Agenda Igreja</p></div></div>
             <div className="flex items-center gap-2">
+                <button onClick={() => { setWeekAnchor(new Date()); setIsWeekOpen(true); }} className="flex items-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-full font-bold text-xs hover:bg-slate-700 transition" title="Agenda da semana">
+                    <CalendarDays size={14} /> <span className="hidden sm:inline">Semana</span>
+                </button>
                 <div className="relative">
                     <button onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-full font-bold text-xs hover:bg-slate-200 transition">Opções <ChevronDown size={14} className={`transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} /></button>
                     {isExportMenuOpen && (<div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-50 animate-in fade-in zoom-in duration-200"><button onClick={handleShare} className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl"><Share2 size={16} className="text-blue-500"/> {copySuccess || 'Compartilhar'}</button><a href={googleUrl} target="_blank" rel="noopener noreferrer" className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl"><CalIcon size={16} className="text-red-500"/> Google Agenda</a><div className="h-px bg-slate-100 my-1" /><button onClick={() => setIsExportModalOpen(true)} className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 rounded-xl"><Download size={16} className="text-emerald-500"/> Baixar Agenda</button></div>)}
@@ -383,15 +505,96 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
         </div>
       </header>
 
+      {temFilhos && (
+        <div className="border-b border-slate-200 bg-white/70">
+          <div className="max-w-5xl mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="text-slate-500 font-medium">
+              {incluirFilhos
+                ? "Incluindo também as agendas filhas desta sala."
+                : `Mostrando apenas a agenda de ${room.name}.`}
+            </span>
+            <a
+              href={incluirFilhos ? `/${room.slug}` : `/${room.slug}?filhos=1`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-bold transition ${
+                incluirFilhos
+                  ? "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                  : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              }`}
+            >
+              {incluirFilhos ? "Ocultar agendas filhas" : "Ver também as agendas filhas"}
+            </a>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-5xl mx-auto w-full p-4 space-y-8">
         <div className="relative group"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} /><input type="text" placeholder="Pesquisar um evento..." className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/></div>
         <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden min-h-[700px]">
             <Calendar localizer={localizer} events={filteredEvents} view={view} onView={setView} date={currentDate} onNavigate={setCurrentDate} components={{ toolbar: CustomToolbar, event: CustomEvent }} onSelectEvent={setSelectedEvent} culture="pt-BR" messages={{ noEventsInRange: "Sem eventos nesta data.", showMore: total => `+${total} mais` }} popup={true} className="p-4" />
         </div>
-        <section className="animate-in slide-in-from-bottom duration-500"><div className="flex items-center justify-between mb-4 px-2"><h2 className="text-xl font-black text-slate-800">Resumo de {format(currentDate, 'MMMM', {locale: ptBR})}</h2><span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{monthEvents.length} eventos</span></div>{monthEvents.length > 0 ? (<div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{monthEvents.map((ev, idx) => (<div key={idx} onClick={() => setSelectedEvent(ev)} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer group flex items-center gap-4"><div className="flex flex-col items-center justify-center min-w-[50px] h-[50px] rounded-xl bg-slate-50 text-slate-400 group-hover:bg-blue-50"><span className="text-lg font-black leading-none text-slate-600 group-hover:text-blue-600">{format(ev.start, 'dd')}</span><span className="text-[10px] font-bold uppercase">{format(ev.start, 'EEE', {locale: ptBR})}</span></div><div className="flex-1 min-w-0"><h4 className="font-bold text-slate-900 truncate group-hover:text-blue-600">{ev.title}</h4><div className="flex items-center gap-3 mt-1 text-slate-500 text-xs font-medium"><span className="flex items-center gap-1"><Clock size={12}/> {ev.allDay ? 'Dia todo' : format(ev.start, 'HH:mm')}</span>{ev.resource.isExternal && <span className="flex items-center gap-1"><MapPin size={12}/> {ev.resource.roomName}</span>}</div></div><ChevronRight size={18} className="text-slate-300 group-hover:text-blue-400" /></div>))}</div>) : (<div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-200 text-center"><p className="text-slate-400 font-bold">Nenhum evento programado para este mês.</p></div>)}</section>
+        <section className="animate-in slide-in-from-bottom duration-500"><div className="flex items-center justify-between mb-4 px-2"><h2 className="text-xl font-black text-slate-800">Resumo de {format(currentDate, 'MMMM', {locale: ptBR})}</h2><span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{monthEvents.length} eventos</span></div>{monthEvents.length > 0 ? (<div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{monthEvents.map((ev, idx) => (<div key={idx} onClick={() => setSelectedEvent(ev)} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer group flex items-center gap-4"><div className="flex flex-col items-center justify-center min-w-[50px] h-[50px] rounded-xl bg-slate-50 text-slate-400 group-hover:bg-blue-50"><span className="text-lg font-black leading-none text-slate-600 group-hover:text-blue-600">{format(ev.start, 'dd')}</span><span className="text-[10px] font-bold uppercase">{format(ev.start, 'EEE', {locale: ptBR})}</span></div><div className="flex-1 min-w-0"><h4 className="font-bold text-slate-900 truncate group-hover:text-blue-600">{ev.title}</h4><div className="flex items-center gap-3 mt-1 text-slate-500 text-xs font-medium"><span className="flex items-center gap-1"><Clock size={12}/> {ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : horaSP(ev.start)}</span>{ev.resource.isExternal && <span className="flex items-center gap-1"><MapPin size={12}/> {ev.resource.roomName}</span>}</div></div><ChevronRight size={18} className="text-slate-300 group-hover:text-blue-400" /></div>))}</div>) : (<div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-200 text-center"><p className="text-slate-400 font-bold">Nenhum evento programado para este mês.</p></div>)}</section>
       </main>
 
-      {selectedEvent && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}><div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 overflow-hidden" onClick={e => e.stopPropagation()}><div className="h-2 w-full" style={{backgroundColor: selectedEvent.resource.color}}></div><div className="p-8"><div className="flex justify-between items-start mb-6"><h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedEvent.title}</h2><button onClick={() => setSelectedEvent(null)} className="text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full"><X size={20}/></button></div><div className="space-y-6"><div className="flex items-start gap-4 text-slate-600 bg-slate-50 p-4 rounded-2xl"><Clock className="text-blue-500 mt-1" size={24}/><div><p className="font-black text-slate-800 capitalize">{format(selectedEvent.start, "EEEE, d 'de' MMMM", {locale: ptBR})}</p><p className="text-sm font-bold text-slate-500">{selectedEvent.allDay ? 'O dia todo' : `${format(selectedEvent.start, 'HH:mm')} até ${format(selectedEvent.end, 'HH:mm')}`}</p></div></div>{selectedEvent.description && (<div className="flex items-start gap-4 text-slate-600 px-2"><AlignLeft className="text-slate-400 mt-1" size={24}/><p className="text-sm leading-relaxed">{selectedEvent.description}</p></div>)}<div className="flex items-center gap-4 text-slate-600 px-2 pt-4 border-t border-slate-100"><MapPin className="text-slate-400" size={24}/><span className="text-sm font-black text-slate-700">{selectedEvent.resource.roomName || room.name}</span></div></div><button onClick={() => setSelectedEvent(null)} className="w-full mt-8 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition shadow-lg">Fechar</button></div></div></div>)}
+      {selectedEvent && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}><div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 overflow-hidden" onClick={e => e.stopPropagation()}><div className="h-2 w-full" style={{backgroundColor: selectedEvent.resource.color}}></div><div className="p-8"><div className="flex justify-between items-start mb-6"><h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedEvent.title}</h2><button onClick={() => setSelectedEvent(null)} className="text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full"><X size={20}/></button></div><div className="space-y-6"><div className="flex items-start gap-4 text-slate-600 bg-slate-50 p-4 rounded-2xl"><Clock className="text-blue-500 mt-1" size={24}/><div><p className="font-black text-slate-800 capitalize">{format(selectedEvent.start, "EEEE, d 'de' MMMM", {locale: ptBR})}</p><p className="text-sm font-bold text-slate-500">{selectedEvent.allDay ? `${rotuloDiaTodo(selectedEvent.start, selectedEvent.end)} · ${rotuloPeriodoDiaTodo(selectedEvent.start, selectedEvent.end)}` : `${horaSP(selectedEvent.start)} até ${horaSP(selectedEvent.end)}`}</p></div></div>{selectedEvent.description && (<div className="flex items-start gap-4 text-slate-600 px-2"><AlignLeft className="text-slate-400 mt-1" size={24}/><p className="text-sm leading-relaxed">{selectedEvent.description}</p></div>)}<div className="flex items-center gap-4 text-slate-600 px-2 pt-4 border-t border-slate-100"><MapPin className="text-slate-400" size={24}/><span className="text-sm font-black text-slate-700">{selectedEvent.resource.roomName || room.name}</span></div></div><button onClick={() => setSelectedEvent(null)} className="w-full mt-8 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition shadow-lg">Fechar</button></div></div></div>)}
+
+      {/* MODAL AGENDA SEMANAL */}
+      {isWeekOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-start md:items-center justify-center p-3 md:p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl p-4 md:p-6 my-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-1">
+                <button onClick={() => setWeekAnchor((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })} className="p-2 rounded-full hover:bg-slate-100" title="Semana anterior"><ChevronLeft size={18}/></button>
+                <button onClick={() => setWeekAnchor(new Date())} className="text-xs font-bold bg-slate-100 px-3 py-1.5 rounded-lg">Hoje</button>
+                <button onClick={() => setWeekAnchor((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })} className="p-2 rounded-full hover:bg-slate-100" title="Próxima semana"><ChevronRight size={18}/></button>
+              </div>
+              <h2 className="text-sm md:text-base font-black text-slate-800 order-first w-full md:order-none md:w-auto">Semana de {tituloDaSemana()}</h2>
+              <button onClick={() => setIsWeekOpen(false)} className="text-slate-400 hover:text-slate-700 p-2 rounded-full bg-slate-100"><X size={18}/></button>
+            </div>
+
+            <div ref={weekRef} className="rounded-2xl border border-slate-200 overflow-hidden bg-white">
+              <div className="px-4 py-3 border-b bg-slate-50 flex items-baseline justify-between gap-2">
+                <span className="font-black text-slate-800">{room.name}</span>
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Agenda da semana</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {semana.map((dia) => {
+                  const doDia = eventosDoDia(dia);
+                  const hoje = chaveDiaSP(dia) === chaveDiaSP(new Date());
+                  return (
+                    <div key={chaveDiaSP(dia)} className={`grid grid-cols-[92px_1fr] gap-3 px-3 md:px-4 py-3 ${hoje ? 'bg-blue-50/50' : ''}`}>
+                      <div className="leading-tight">
+                        <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">{dataSP(dia, { weekday: 'short' })}</div>
+                        <div className={`text-lg font-black ${hoje ? 'text-blue-600' : 'text-slate-800'}`}>{format(dia, 'dd/MM')}</div>
+                      </div>
+                      <div className="grid gap-1.5 min-w-0">
+                        {doDia.length === 0 && <span className="text-xs text-slate-400 italic py-1">Sem eventos</span>}
+                        {doDia.map((ev) => (
+                          <div key={`${ev.id}-${chaveDiaSP(dia)}`} className="flex items-start gap-2 rounded-lg border border-slate-100 px-2 py-1.5">
+                            <span className="mt-0.5 h-2.5 w-2.5 flex-none rounded-full" style={{ backgroundColor: ev.resource?.color || '#3b82f6' }} />
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-slate-800 truncate">{ev.title}</div>
+                              <div className="text-[10px] text-slate-500 font-medium">
+                                {ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : `${horaSP(ev.start)}–${horaSP(ev.end)}`}
+                                {ev.resource?.roomName && ev.resource.isExternal ? ` · ${ev.resource.roomName}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mt-4">
+              <button onClick={baixarPDFDaSemana} className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 text-white px-3 py-2.5 text-xs font-bold hover:bg-blue-700 transition"><FileText size={16}/> PDF</button>
+              <button onClick={baixarJPGDaSemana} disabled={weekGenerating} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white px-3 py-2.5 text-xs font-bold hover:bg-emerald-700 transition disabled:opacity-50"><Download size={16}/> {weekGenerating ? 'Gerando…' : 'JPG'}</button>
+              <button onClick={baixarTextoDaSemana} className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white px-3 py-2.5 text-xs font-bold hover:bg-slate-700 transition"><AlignLeft size={16}/> Texto</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE EXPORTAÇÃO */}
       {isExportModalOpen && (

@@ -53,7 +53,7 @@ function expandEvents(events) {
 
 
 export async function GET(request, { params }) {
-    const { slug } = params;
+    const { slug } = await params;
     if (!slug) {
         return new Response("Agenda não encontrada", { status: 404 });
     }

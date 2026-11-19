@@ -5,8 +5,36 @@ import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { chaveDiaSP, fimExclusivoSP, inicioDoDiaSP, parseDataSP } from "@/lib/datas";
 
 const prisma = new PrismaClient();
+
+// Normaliza um evento de "dia todo": começa à meia-noite do primeiro dia e
+// termina à meia-noite do dia seguinte ao último (fim exclusivo). É o formato
+// que o calendário e o .ics esperam, sem virar um evento de 00:00 a 00:00.
+function datasDoEvento(formData) {
+  const isAllDay = formData.get("allDay") === "on";
+  if (!isAllDay) {
+    return {
+      isAllDay,
+      start: parseDataSP(formData.get("start")),
+      end: parseDataSP(formData.get("end")),
+    };
+  }
+  const inicioTexto = String(formData.get("start") ?? "").slice(0, 10);
+  const fimTexto = String(formData.get("end") ?? "").slice(0, 10) || inicioTexto;
+  const inicioChave = /^\d{4}-\d{2}-\d{2}$/.test(inicioTexto)
+    ? inicioTexto
+    : chaveDiaSP(parseDataSP(inicioTexto) ?? new Date());
+  const fimChave = /^\d{4}-\d{2}-\d{2}$/.test(fimTexto)
+    ? fimTexto
+    : chaveDiaSP(parseDataSP(fimTexto) ?? new Date(inicioChave));
+  return {
+    isAllDay,
+    start: inicioDoDiaSP(inicioChave),
+    end: fimExclusivoSP(fimChave < inicioChave ? inicioChave : fimChave),
+  };
+}
 
 // Adicione esta nova função ao seu arquivo src/app/actions.js
 export async function rebroadcastEvent(formData) {
@@ -41,28 +69,30 @@ export async function rebroadcastEvent(formData) {
   const originalEvent = await prisma.event.findUnique({ where: { id: originalEventId } });
   if (!originalEvent) return { error: "Evento original não encontrado." };
 
+  // Só é permitido repassar para salas filhas desta sala.
+  const filhas = await prisma.room.findMany({
+    where: { parentId: parentRoomId },
+    select: { id: true },
+  });
+  const idsPermitidos = new Set(filhas.map((f) => f.id));
+  targetRoomsConnect = targetRoomsConnect.filter((r) => idsPermitidos.has(r.id));
+
   try {
-    // A lógica de criar o novo evento é quase idêntica à `createEvent`
-    // mas com alguns campos importantes setados.
-    await prisma.event.create({
+    // Um evento repassado continua sendo UM evento: em vez de criar uma cópia
+    // na sala do setor, conectamos os mesmos destinatários ao evento original.
+    await prisma.event.update({
+      where: { id: originalEventId },
       data: {
-        roomId: parentRoomId, // O DONO É A SALA ATUAL!
-        title: originalEvent.title,
-        description: originalEvent.description,
-        start: originalEvent.start,
-        end: originalEvent.end,
-        allDay: originalEvent.allDay,
-        categoryId: originalEvent.categoryId,
-        // NÃO COPIAMOS A RRULE, pois a retransmissão é de uma ocorrência específica.
-        isRecurring: false, 
-        rrule: null,
-        // Lógica de direcionamento para os filhos
-        targetRooms: { connect: targetRoomsConnect } 
-      }
+        targetRooms: { connect: targetRoomsConnect },
+      },
     });
 
     const parentRoom = await prisma.room.findUnique({ where: { id: parentRoomId } });
     revalidatePath(`/dashboard/${parentRoom.slug}`);
+    for (const destino of targetRoomsConnect) {
+      const sala = await prisma.room.findUnique({ where: { id: destino.id }, select: { slug: true } });
+      if (sala?.slug) revalidatePath(`/dashboard/${sala.slug}`);
+    }
     return { success: true };
 
   } catch (e) {
@@ -100,12 +130,19 @@ export async function setChildRoomGroup(formData) {
 
   // 3. Tudo certo, atualizar o grupo
   try {
-    await prisma.room.update({
+    const atualizada = await prisma.room.update({
       where: { id: childRoomId },
-      data: { group },
+      data: { group: group === "" ? null : group },
     });
+    const pai = await prisma.room.findUnique({ where: { id: parentRoomId }, select: { slug: true } });
+    if (pai?.slug) revalidatePath(`/dashboard/${pai.slug}`);
     revalidatePath(`/dashboard/${childRoom.slug}`); // Revalida a filha
-    return { success: true, message: `Grupo de "${childRoom.name}" atualizado!` };
+    revalidatePath("/dashboard");
+    return {
+      success: true,
+      message: `Região de "${childRoom.name}" atualizada!`,
+      group: atualizada.group,
+    };
   } catch (error) {
     return { error: "Erro ao atualizar o grupo." };
   }
@@ -156,7 +193,9 @@ export async function updateRoom(formData) {
 }
 
 // BUSCAR EVENTOS (VERSÃO FINAL E CORRETA COM CONTROLE DE HIERARQUIA)
-export async function getRoomEvents(roomId, monitorMode = false) {
+// incluirFilhos=false é usado no link público: mostra só a agenda daquela sala
+// (com os eventos do setor/pai que descem para ela), sem as agendas filhas.
+export async function getRoomEvents(roomId, monitorMode = false, incluirFilhos = true) {
   const room = await prisma.room.findUnique({ 
     where: { id: roomId }, 
     include: { parent: true, children: true } 
@@ -194,8 +233,8 @@ export async function getRoomEvents(roomId, monitorMode = false) {
     orClauses.push({ roomId: { in: parentIds }, cascade: true });
   }
 
-  // D. Lógica de VISIBILIDADE DOS FILHOS
-  if (childrenIds.length > 0) {
+  // D. Lógica de VISIBILIDADE DOS FILHOS (opcional no link público)
+  if (incluirFilhos && childrenIds.length > 0) {
       if (monitorMode) {
          // MODO MONITOR: Vejo TUDO dos filhos (congregacoes)
          orClauses.push({ roomId: { in: childrenIds } });
@@ -314,14 +353,10 @@ export async function createEvent(formData) {
       targetRoomsConnect = specificTargetIds.map(id => ({ id }));
   }
 
-  // Datas
-  const isAllDay = formData.get("allDay") === "on";
-  let startDate = new Date(formData.get("start"));
-  let endDate = new Date(formData.get("end"));
-  if (isAllDay) {
-    startDate.setHours(0, 0, 0, 0);
-    endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 1);
+  // Datas: dia todo usa datas inteiras (inclusive no fim mostrado), sem horário.
+  const { isAllDay, start: startDate, end: endDate } = datasDoEvento(formData);
+  if (!startDate || !endDate || endDate <= startDate) {
+    return { success: false, error: "Período inválido." };
   }
 
   try {
@@ -389,15 +424,9 @@ export async function updateEvent(formData) {
 
     try {
         const categoryId = formData.get("categoryId");
-        const isAllDay = formData.get("allDay") === "on";
-
-        let newStart = new Date(formData.get("start"));
-        let newEnd = new Date(formData.get("end"));
-
-        if (isAllDay) {
-          newStart.setHours(0, 0, 0, 0);
-          newEnd = new Date(newStart);
-          newEnd.setDate(newEnd.getDate() + 1);
+        const { isAllDay, start: newStart, end: newEnd } = datasDoEvento(formData);
+        if (!newStart || !newEnd || newEnd <= newStart) {
+          return { success: false, error: "Período inválido." };
         }
 
         const title = formData.get("title");
@@ -527,7 +556,8 @@ export async function getDashboardStats(roomId) {
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  const emSeteDias = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const room = await prisma.room.findUnique({
     where: { id: roomId },
@@ -538,12 +568,30 @@ export async function getDashboardStats(roomId) {
   
   const childrenIds = room.children.map(c => c.id);
 
-  const totalEventsMonth = await prisma.event.count({
-    where: {
-      OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
-      start: { gte: startOfMonth, lte: endOfMonth }
-    }
-  });
+  const [totalEventsMonth, totalEventsOwnMonth, upcoming7, allDayMonth] = await Promise.all([
+    prisma.event.count({
+      where: {
+        OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
+        start: { gte: startOfMonth, lte: endOfMonth }
+      }
+    }),
+    prisma.event.count({
+      where: { roomId, start: { gte: startOfMonth, lte: endOfMonth } }
+    }),
+    prisma.event.count({
+      where: {
+        OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
+        start: { gte: now, lte: emSeteDias }
+      }
+    }),
+    prisma.event.count({
+      where: {
+        OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
+        allDay: true,
+        start: { gte: startOfMonth, lte: endOfMonth }
+      }
+    }),
+  ]);
 
   const categories = await prisma.category.findMany({
     where: { roomId },
@@ -556,14 +604,28 @@ export async function getDashboardStats(roomId) {
       id: true,
       name: true,
       group: true,
+      color: true,
       _count: {
         select: { events: { where: { start: { gte: startOfMonth } } } }
       }
     }
   });
 
+  // Resumo por região: quantidade de salas e eventos no mês.
+  const porRegiao = new Map();
+  for (const c of childrenStats) {
+    const nome = c.group?.trim() || "Sem região";
+    const atual = porRegiao.get(nome) ?? { regiao: nome, salas: 0, eventos: 0 };
+    atual.salas += 1;
+    atual.eventos += c._count.events || 0;
+    porRegiao.set(nome, atual);
+  }
+
   return {
     totalEventsMonth: totalEventsMonth || 0,
+    totalEventsOwnMonth: totalEventsOwnMonth || 0,
+    upcoming7: upcoming7 || 0,
+    allDayMonth: allDayMonth || 0,
     categoryDistribution: categories.map(c => ({ 
         name: c.name, 
         count: c._count.events || 0, 
@@ -572,9 +634,11 @@ export async function getDashboardStats(roomId) {
     childrenActivity: childrenStats.map(c => ({ 
         id: c.id, 
         name: c.name, 
-        group: c.group || 'Sem Grupo', 
+        group: c.group || 'Sem Grupo',
+        color: c.color || '#3b82f6',
         count: c._count.events || 0 
-    }))
+    })),
+    regions: [...porRegiao.values()].sort((a, b) => a.regiao.localeCompare(b.regiao, "pt-BR")),
   };
 }
 

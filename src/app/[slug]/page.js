@@ -7,7 +7,7 @@ import { getRoomEvents } from "../actions";
 
 const prisma = new PrismaClient();
 
-function expandEvents(events) {
+function expandEvents(events, timeZone) {
     const startRange = new Date(new Date().setFullYear(new Date().getFullYear() - 1));
     const endRange = new Date(new Date().setFullYear(new Date().getFullYear() + 2));
     let expanded = [];
@@ -49,13 +49,19 @@ function expandEvents(events) {
     return expanded;
 }
 
-export default async function PublicPage({ params }) {
+export default async function PublicPage({ params, searchParams }) {
     const { slug } = await params;
+    const { filhos } = await searchParams;
     const { userId } = await auth();
+
+    const incluirFilhos = filhos === "1";
 
     const room = await prisma.room.findUnique({ 
         where: { slug }, 
-        include: { parent: { select: { name: true, color: true } } } 
+        include: { 
+            parent: { select: { name: true, color: true } },
+            _count: { select: { children: true } },
+        } 
     });
 
     if (!room) return <div className="text-center p-10 font-bold">Agenda não encontrada.</div>;
@@ -66,7 +72,9 @@ export default async function PublicPage({ params }) {
         isFollowing = !!follow;
     }
 
-    const rawEvents = await getRoomEvents(room.id);
+    // O link público mostra só a agenda desta sala; as agendas filhas só entram
+    // quando a pessoa pede explicitamente (?filhos=1).
+    const rawEvents = await getRoomEvents(room.id, false, incluirFilhos);
     const expanded = expandEvents(rawEvents); 
     
     // SERIALIZAÇÃO PARA O VERCEL
@@ -81,6 +89,8 @@ export default async function PublicPage({ params }) {
             events={serializableEvents} 
             isFollowingInitially={isFollowing} 
             isLoggedIn={!!userId} 
+            incluirFilhos={incluirFilhos}
+            temFilhos={room._count.children > 0}
         />
     );
 }

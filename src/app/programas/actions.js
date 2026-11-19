@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { STATUS, classificarConflito } from "@/lib/festividades/conflitos";
 import { chaveDia } from "@/lib/festividades/grade";
+import { inicioDoDiaSP, parseDataSP, somarDiasChave } from "@/lib/datas";
 import { filhosDiretos } from "@/lib/festividades/salas";
 
 const prisma = new PrismaClient();
@@ -26,8 +27,9 @@ async function ehGestor(userId, roomId) {
 }
 
 function parseData(valor) {
-  const d = new Date(valor);
-  return Number.isNaN(d.getTime()) ? null : d;
+  // Datas sem fuso (input datetime-local) são de Brasília; no servidor UTC isso
+  // é essencial para o horário não sair 3h adiantado.
+  return parseDataSP(valor);
 }
 
 // Prazo informado só com a data: vale até o fim daquele dia em Brasília.
@@ -121,6 +123,74 @@ function avaliarConflitos(candidata, existentes) {
   }
   return { avisos };
 }
+
+// Sobe a hierarquia da sala (pai, avô...) para achar os eventos setoriais.
+async function salasAcima(roomId) {
+  const acima = [];
+  let atual = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: { parentId: true },
+  });
+  let guarda = 0;
+  while (atual?.parentId && guarda < 10) {
+    acima.push(atual.parentId);
+    atual = await prisma.room.findUnique({
+      where: { id: atual.parentId },
+      select: { parentId: true },
+    });
+    guarda += 1;
+  }
+  return acima;
+}
+
+// Eventos do setor/pai que alcançam esta sala e ocupam o dia inteiro.
+async function eventosSetoriaisNoDia(roomId, dia) {
+  const acima = await salasAcima(roomId);
+  if (acima.length === 0) return [];
+  const inicio = inicioDoDiaSP(dia);
+  const fim = inicioDoDiaSP(somarDiasChave(dia, 1));
+  return prisma.event.findMany({
+    where: {
+      roomId: { in: acima },
+      start: { lt: fim },
+      end: { gt: inicio },
+      OR: [{ cascade: true }, { targetRooms: { some: { id: roomId } } }],
+    },
+    select: { title: true, start: true },
+    orderBy: { start: "asc" },
+  });
+}
+
+// Regras de bloqueio de datas do programa:
+// 1. mesmo departamento + mesma região já agendados no dia;
+// 2. evento setorial (do pai) no dia, que vale automaticamente para os filhos.
+// Conflitos de departamentos diferentes na mesma região continuam só como aviso.
+async function motivoBloqueio({ programId, roomId, departmentId, regionId, start }) {
+  const dia = chaveDia(start);
+
+  if (departmentId && regionId) {
+    const existentes = await solicitacoesAtivasDoPrograma(programId);
+    const mesmoDepartamento = existentes.find(
+      (s) =>
+        s.roomId !== roomId &&
+        s.departmentId === departmentId &&
+        s.regionId === regionId &&
+        chaveDia(s.start) === dia,
+    );
+    if (mesmoDepartamento) {
+      return "Este departamento já está agendado nesta região nesse dia.";
+    }
+  }
+
+  const setoriais = await eventosSetoriaisNoDia(roomId, dia);
+  if (setoriais.length > 0) {
+    const titulos = setoriais.map((e) => `“${e.title}”`).join(", ");
+    return `Já existe evento do setor nesse dia (${titulos}).`;
+  }
+
+  return null;
+}
+
 
 // Cria o evento da festividade na sala do filho e repassa para o pai e as demais
 // congregações do programa. Usado tanto na aprovação de um pedido quanto quando
@@ -439,6 +509,16 @@ export async function enviarSolicitacao(formData) {
   const departamento = await prisma.programDepartment.findUnique({ where: { id: departmentId } });
   if (!departamento?.active) return { error: "Este departamento não está mais disponível." };
 
+  // Datas bloqueadas: mesmo departamento na mesma região ou evento do setor.
+  const bloqueio = await motivoBloqueio({
+    programId,
+    roomId,
+    departmentId,
+    regionId: filho.regionId,
+    start,
+  });
+  if (bloqueio) return { error: bloqueio };
+
   const existentes = await solicitacoesAtivasDoPrograma(programId);
   const candidata = { roomId, departmentId, regionId: filho.regionId, start };
   const { avisos } = avaliarConflitos(candidata, existentes);
@@ -549,7 +629,25 @@ export async function decidirSolicitacao(requestId, decisao, motivo) {
   }
 
   if (solicitacao.programId) {
-    // Choques no mesmo dia são apenas avisos: o pai aprova com os critérios dele.
+    // Bloqueios automáticos antes de aprovar: mesmo departamento na mesma
+    // região no mesmo dia, ou evento do setor já marcado nesse dia.
+    const filho = await prisma.programChild.findUnique({
+      where: {
+        programId_roomId: {
+          programId: solicitacao.programId,
+          roomId: solicitacao.roomId,
+        },
+      },
+      select: { regionId: true },
+    });
+    const bloqueio = await motivoBloqueio({
+      programId: solicitacao.programId,
+      roomId: solicitacao.roomId,
+      departmentId: solicitacao.departmentId,
+      regionId: filho?.regionId ?? null,
+      start: solicitacao.start,
+    });
+    if (bloqueio) return { error: bloqueio };
   }
 
   const destinos = new Set([setorId]);
@@ -649,6 +747,15 @@ export async function adicionarDataParaFilho(formData) {
 
   const departamento = programa.departments.find((d) => d.id === departmentId);
   if (!departamento?.active) return { error: "Este departamento não está disponível." };
+
+  const bloqueio = await motivoBloqueio({
+    programId,
+    roomId,
+    departmentId,
+    regionId: filho.regionId,
+    start,
+  });
+  if (bloqueio) return { error: bloqueio };
 
   const existentes = await solicitacoesAtivasDoPrograma(programId);
   const { avisos } = avaliarConflitos(

@@ -98,6 +98,16 @@ function ChipAgenda({ evento, compacto = false }) {
   );
 }
 
+// Cadeado simples para indicar data bloqueada (sem dependência de ícones).
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="4" y="10" width="16" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
+}
+
 // Lista compacta da agenda do pai para o dia (grade/lista/calendário).
 function AgendaDoDia({ eventos, compacto = false, limite = 99, className = "" }) {
   if (!eventos?.length) return null;
@@ -486,6 +496,27 @@ export function GradeSolicitacoes({
     ));
   }
 
+  function bloqueioDoPedido(chave, departamento) {
+    const setoriais = agendaDoDia(chave);
+    if (setoriais.length > 0) {
+      return `Bloqueado: evento do setor no dia (${setoriais.map((e) => e.titulo).join(", ")}).`;
+    }
+    if (regiaoAtual && roomId) {
+      const mesmo = grade.solicitacoes.find(
+        (i) =>
+          i.dia === chave &&
+          i.departmentId === departamento.id &&
+          i.roomId !== roomId &&
+          (i.regiao ?? "Sem região") === regiaoAtual &&
+          !["rejeitada", "substituida"].includes(i.status),
+      );
+      if (mesmo) {
+        return `Bloqueado: ${departamento.name} já está em ${mesmo.sala} (${regiaoAtual}) neste dia.`;
+      }
+    }
+    return null;
+  }
+
   function renderPedido(chave, departamento, dia, compacto, sempreVisivel = false) {
     if (!roomId || !podeSolicitar.includes(departamento.id)) return null;
     if (aberto === chave) {
@@ -501,6 +532,19 @@ export function GradeSolicitacoes({
             router.refresh();
           }}
         />
+      );
+    }
+    const bloqueio = bloqueioDoPedido(dia.chave, departamento);
+    if (bloqueio) {
+      return (
+        <span
+          title={bloqueio}
+          className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 font-bold text-rose-700 ${
+            compacto ? "px-1 py-0.5 text-[9px]" : "px-2 py-1.5 text-[10px]"
+          }`}
+        >
+          <LockIcon /> <span className="truncate">{compacto ? "Bloqueado" : bloqueio}</span>
+        </span>
       );
     }
     const { mesmaRegiao, outraRegiao } = avisosDoDia(dia.chave);

@@ -1,8 +1,9 @@
 "use client";
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
 import AdminCalendar from './AdminCalendar';
 import Festividades from './Festividades';
+import { setChildRoomGroup } from '@/app/actions';
 import { PartyPopper } from 'lucide-react';
 import { 
   LayoutDashboard, 
@@ -148,59 +149,167 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
         )}
 
         {activeTab === 'analytics' && (
-          <div className="p-8 h-full overflow-y-auto custom-scrollbar">
-            <div className="max-w-7xl mx-auto space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card title="Eventos este Mês" value={stats.totalEventsMonth} icon={TrendingUp} color="bg-blue-500" />
-                <Card title="Filiais Ativas" value={childrenRooms.length} icon={MapPin} color="bg-emerald-500" />
-                <Card title="Categorias Utilizadas" value={categories.length} icon={PieChart} color="bg-purple-500" />
+          <div className="p-4 sm:p-6 md:p-8 h-full overflow-y-auto custom-scrollbar">
+            <div className="max-w-7xl mx-auto space-y-6">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Dashboard do setor</h2>
+                  <p className="text-sm text-slate-500 font-medium">
+                    Visão geral de {room.name} e das congregações vinculadas.
+                  </p>
+                </div>
+                <Link
+                  href={`/${room.slug}`}
+                  target="_blank"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:text-blue-600"
+                >
+                  Ver agenda pública
+                </Link>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Distribuição de Categorias */}
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                  <h3 className="text-xl font-black text-slate-900 mb-6">Frequência por Categoria</h3>
-                  <div className="space-y-4">
-                    {stats.categoryDistribution.map(cat => (
-                      <div key={cat.name}>
-                        <div className="flex justify-between text-sm font-bold mb-1">
-                          <span className="text-slate-700">{cat.name}</span>
-                          <span className="text-slate-500">{cat.count}</span>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+                <Card title="Eventos no mês" value={stats.totalEventsMonth ?? 0} icon={TrendingUp} color="bg-blue-500" />
+                <Card title="Próximos 7 dias" value={stats.upcoming7 ?? 0} icon={CalIcon} color="bg-indigo-500" />
+                <Card title="Dia todo no mês" value={stats.allDayMonth ?? 0} icon={PartyPopper} color="bg-amber-500" />
+                <Card title="Congregações" value={childrenRooms.length} icon={MapPin} color="bg-emerald-500" />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                {/* Regiões */}
+                <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-black text-slate-900">Por região</h3>
+                    <Link href="/dashboard" className="text-xs font-bold text-blue-600 hover:underline">
+                      Diretórios →
+                    </Link>
+                  </div>
+                  {(!stats.regions || stats.regions.length === 0) && (
+                    <p className="text-sm text-slate-500">Nenhuma congregação com região definida ainda.</p>
+                  )}
+                  <div className="space-y-3">
+                    {(stats.regions ?? []).map((r) => {
+                      const maior = Math.max(1, ...(stats.regions ?? []).map((x) => x.eventos));
+                      return (
+                        <div key={r.regiao}>
+                          <div className="flex justify-between text-sm font-bold mb-1">
+                            <span className="text-slate-700">{r.regiao}</span>
+                            <span className="text-slate-500">
+                              {r.salas} sala{r.salas === 1 ? "" : "s"} · {r.eventos} evento{r.eventos === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-indigo-500"
+                              style={{ width: `${(r.eventos / maior) * 100}%` }}
+                            />
+                          </div>
                         </div>
-                        <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full rounded-full" 
-                            style={{ 
-                                width: `${(cat.count / stats.totalEventsMonth) * 100}%`,
-                                backgroundColor: cat.color 
-                            }}
-                          ></div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Categorias */}
+                <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="text-lg font-black text-slate-900 mb-4">Frequência por categoria</h3>
+                  {(!stats.categoryDistribution || stats.categoryDistribution.length === 0) && (
+                    <p className="text-sm text-slate-500">Nenhuma categoria criada ainda.</p>
+                  )}
+                  <div className="space-y-3">
+                    {(stats.categoryDistribution ?? []).map((cat) => {
+                      const maior = Math.max(1, ...(stats.categoryDistribution ?? []).map((c) => c.count));
+                      return (
+                        <div key={cat.name}>
+                          <div className="flex justify-between text-sm font-bold mb-1">
+                            <span className="text-slate-700">{cat.name}</span>
+                            <span className="text-slate-500">{cat.count}</span>
+                          </div>
+                          <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${(cat.count / maior) * 100}%`, backgroundColor: cat.color }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                {/* Atividade das congregações */}
+                <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  <h3 className="text-lg font-black text-slate-900 mb-4">Atividade das congregações</h3>
+                  {stats.childrenActivity.length === 0 && (
+                    <p className="text-sm text-slate-500">Nenhuma congregação vinculada.</p>
+                  )}
+                  <div className="divide-y divide-slate-100">
+                    {[...stats.childrenActivity].sort((a, b) => b.count - a.count).slice(0, 8).map((child, i) => (
+                      <div key={child.id ?? child.name} className="py-3 flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="w-7 h-7 flex-none rounded-full bg-slate-100 flex items-center justify-center text-[11px] font-black text-slate-500">{i + 1}</span>
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-900 truncate">{child.name}</p>
+                            <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                              <i className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: child.color ?? "#94a3b8" }} />
+                              {child.group}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right flex-none">
+                          <span className="text-lg font-black text-blue-600">{child.count}</span>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">eventos</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Top Congregações */}
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                  <h3 className="text-xl font-black text-slate-900 mb-6">Atividade das Congregações</h3>
-                  <div className="divide-y divide-slate-100">
-                    {stats.childrenActivity.sort((a,b) => b.count - a.count).slice(0, 5).map((child, i) => (
-                      <div key={child.name} className="py-4 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <span className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black text-slate-500">{i+1}</span>
-                          <div>
-                            <p className="font-bold text-slate-900">{child.name}</p>
-                            <p className="text-xs text-slate-400 font-medium">{child.group}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-lg font-black text-blue-600">{child.count}</span>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">Eventos</p>
-                        </div>
-                      </div>
-                    ))}
+                {/* Programas do setor */}
+                <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-black text-slate-900">Programas</h3>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('festividades')}
+                      className="text-xs font-bold text-blue-600 hover:underline"
+                    >
+                      Abrir →
+                    </button>
                   </div>
+                  {festividades?.programas?.length > 0 ? (
+                    <div className="divide-y divide-slate-100">
+                      {festividades.programas.slice(0, 5).map((p) => (
+                        <Link
+                          key={p.id}
+                          href={`/programas/${p.id}`}
+                          className="flex items-center justify-between gap-3 py-3 hover:bg-slate-50/60 -mx-2 px-2 rounded-lg"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-900 truncate">{p.name}</p>
+                            <p className="text-xs text-slate-500">{p.participantes} sala(s) participando</p>
+                          </div>
+                          <span
+                            className={`flex-none rounded-full px-2 py-1 text-[10px] font-black ${
+                              p.pendentes > 0 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                            }`}
+                          >
+                            {p.pendentes > 0 ? `${p.pendentes} pendente(s)` : "em dia"}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      Nenhum programa promovido por este setor. Crie um na aba Programas.
+                    </p>
+                  )}
+                  {festividades?.avulsas?.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                      {festividades.avulsas.length} confirmação(ões) avulsa(s) aguardando.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -258,6 +367,29 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
 function GroupManagerCard({ child, parentId }) {
   const [isEditing, setIsEditing] = useState(false);
   const [group, setGroup] = useState(child.group || "");
+  const [erro, setErro] = useState("");
+  const [salvo, setSalvo] = useState(false);
+  const [pendente, iniciarTransicao] = useTransition();
+
+  function salvar(e) {
+    e.preventDefault();
+    setErro("");
+    iniciarTransicao(async () => {
+      const dados = new FormData();
+      dados.append("childRoomId", child.id);
+      dados.append("parentRoomId", parentId);
+      dados.append("group", group);
+      const resultado = await setChildRoomGroup(dados);
+      if (resultado?.error) {
+        setErro(resultado.error);
+        return;
+      }
+      setGroup(resultado?.group ?? group);
+      setIsEditing(false);
+      setSalvo(true);
+      setTimeout(() => setSalvo(false), 2500);
+    });
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all group">
@@ -269,18 +401,19 @@ function GroupManagerCard({ child, parentId }) {
           {group || "Sem Grupo"}
         </span>
       </div>
-      
+
       <h4 className="font-black text-slate-900 text-lg mb-1">{child.name}</h4>
-      <p className="text-xs text-slate-400 font-bold mb-6">Sincronizado via {child.type}</p>
+      <p className="text-xs text-slate-400 font-bold mb-4">Sincronizado via {child.type}</p>
+
+      {(erro || salvo) && (
+        <p className={`mb-3 text-xs font-bold ${erro ? "text-rose-600" : "text-emerald-600"}`}>
+          {erro || "Região salva!"}
+        </p>
+      )}
 
       {isEditing ? (
-        <form action={async (formData) => {
-          await setChildRoomGroup(formData);
-          setIsEditing(false);
-        }} className="space-y-3">
-          <input type="hidden" name="childRoomId" value={child.id} />
-          <input type="hidden" name="parentRoomId" value={parentId} />
-          <input 
+        <form onSubmit={salvar} className="space-y-3">
+          <input
             name="group"
             autoFocus
             className="w-full p-2 text-sm border-2 border-blue-500 rounded-lg outline-none"
@@ -289,16 +422,20 @@ function GroupManagerCard({ child, parentId }) {
             onChange={(e) => setGroup(e.target.value)}
           />
           <div className="flex gap-2">
-            <button type="submit" className="flex-1 bg-blue-600 text-white text-xs font-bold py-2 rounded-lg">Salvar</button>
-            <button type="button" onClick={() => setIsEditing(false)} className="flex-1 bg-slate-100 text-slate-500 text-xs font-bold py-2 rounded-lg">Sair</button>
+            <button type="submit" disabled={pendente} className="flex-1 bg-blue-600 text-white text-xs font-bold py-2 rounded-lg disabled:opacity-60">
+              {pendente ? "Salvando…" : "Salvar"}
+            </button>
+            <button type="button" onClick={() => setIsEditing(false)} className="flex-1 bg-slate-100 text-slate-500 text-xs font-bold py-2 rounded-lg">
+              Cancelar
+            </button>
           </div>
         </form>
       ) : (
-        <button 
+        <button
           onClick={() => setIsEditing(true)}
-          className="w-full py-2 bg-slate-50 text-slate-600 rounded-lg text-xs font-bold border border-slate-100 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-2"
+          className="w-full py-2 bg-slate-50 text-slate-600 rounded-lg text-xs font-bold border border-slate-100 hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
         >
-          <Target size={14} /> Definir Grupo / Região
+          <Target size={14} /> {group ? "Alterar região" : "Definir região"}
         </button>
       )}
     </div>
