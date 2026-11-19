@@ -437,8 +437,8 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.fillRect(0, 0, 1080, 150);
 
           // Marca AgendaIgreja (canto superior direito).
-          ctx.font = 'bold 18px Arial, sans-serif';
-          ctx.fillStyle = '#94a3b8';
+          ctx.font = '14px Arial, sans-serif';
+          ctx.fillStyle = '#64748b';
           ctx.textAlign = 'right';
           ctx.fillText('AgendaIgreja', 1030, 28);
           ctx.textAlign = 'left';
@@ -446,20 +446,20 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           // Nome da sala.
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 48px Arial, sans-serif';
-          ctx.fillText(room.name, 50, 70);
+          ctx.fillText(room.name, 50, 85);
 
           // Subtítulo.
           ctx.font = '24px Arial, sans-serif';
           ctx.fillStyle = '#94a3b8';
-          ctx.fillText('Agenda da Semana', 50, 105);
+          ctx.fillText('Agenda da Semana', 50, 120);
 
           // Data da semana (mais visível).
           ctx.font = 'bold 20px Arial, sans-serif';
           ctx.fillStyle = '#cbd5e1';
-          ctx.fillText(tituloDaSemana(), 50, 135);
+          ctx.fillText(tituloDaSemana(), 50, 150);
 
           // Dias e eventos.
-          let yPos = 170;
+          let yPos = 185;
           const margem = 50;
           const larguraConteudo = 1080 - margem * 2;
           const DIAS_CURTOS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
