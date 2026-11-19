@@ -45,20 +45,26 @@ function hexToRgb(hex) {
 const CustomEvent = ({ event }) => {
     const textColor = getContrastColor(event.resource.color);
     const origem = event.resource?.origem;
+    const nomeOrigem = event.resource?.roomName;
     return (
         <div
             data-origem={origem}
             style={{ backgroundColor: event.resource.color, color: textColor }}
-            className={`px-1.5 py-0.5 rounded text-[11px] font-bold truncate leading-tight h-full flex items-center ${
+            className={`px-1.5 py-0.5 rounded text-[11px] font-bold truncate leading-tight h-full flex items-center gap-1.5 ${
                 origem === "pai"
                     ? "border border-dashed border-white/80 italic opacity-90"
                     : origem === "filho"
                       ? "opacity-80"
                       : ""
             }`}
-            title={origem === "pai" ? `Compromisso de ${event.resource?.roomName || "outra agenda"}` : origem === "filho" ? `Compromisso de ${event.resource?.roomName || "uma agenda filha"}` : undefined}
+            title={origem === "pai" ? `Compromisso de ${nomeOrigem || "outra agenda"}` : origem === "filho" ? `Compromisso de ${nomeOrigem || "uma agenda filha"}` : undefined}
         >
-            {event.title}
+            <span className="truncate">{event.title}</span>
+            {origem !== "proprio" && nomeOrigem && (
+                <span className={`flex-none text-[9px] font-black uppercase tracking-wide ${origem === "pai" ? "text-amber-100" : "text-sky-100"}`}>
+                    · {nomeOrigem}
+                </span>
+            )}
         </div>
     );
 };
@@ -699,6 +705,9 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
             <div className="flex items-center gap-2">
                 <button onClick={() => { setWeekAnchor(new Date()); setIsWeekOpen(true); }} className="flex items-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-full font-bold text-xs hover:bg-slate-700 transition" title="Agenda da semana">
                     <CalendarDays size={14} /> <span className="hidden sm:inline">Semana</span>
+                </button>
+                <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-full font-bold text-xs hover:bg-blue-700 transition" title="Baixar agenda (mensal, anual, Excel, PDF)">
+                    <Download size={14} /> <span className="hidden sm:inline">Baixar</span>
                 </button>
                 <div className="relative">
                     <button onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-full font-bold text-xs hover:bg-slate-200 transition">Opções <ChevronDown size={14} className={`transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} /></button>
