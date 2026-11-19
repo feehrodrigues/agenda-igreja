@@ -440,23 +440,23 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           ctx.font = 'bold 18px Arial, sans-serif';
           ctx.fillStyle = '#94a3b8';
           ctx.textAlign = 'right';
-          ctx.fillText('AgendaIgreja', 1030, 35);
+          ctx.fillText('AgendaIgreja', 1030, 28);
           ctx.textAlign = 'left';
 
           // Nome da sala.
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 48px Arial, sans-serif';
-          ctx.fillText(room.name, 50, 60);
+          ctx.fillText(room.name, 50, 70);
 
           // Subtítulo.
           ctx.font = '24px Arial, sans-serif';
           ctx.fillStyle = '#94a3b8';
-          ctx.fillText('Agenda da Semana', 50, 95);
+          ctx.fillText('Agenda da Semana', 50, 105);
 
           // Data da semana (mais visível).
           ctx.font = 'bold 20px Arial, sans-serif';
           ctx.fillStyle = '#cbd5e1';
-          ctx.fillText(tituloDaSemana(), 50, 125);
+          ctx.fillText(tituloDaSemana(), 50, 135);
 
           // Dias e eventos.
           let yPos = 170;
