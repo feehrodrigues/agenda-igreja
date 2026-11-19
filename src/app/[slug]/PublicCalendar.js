@@ -410,17 +410,28 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           y += 3;
       });
 
-      // Rodapé simples.
+      // Rodapé com ondinha decorativa.
       const paginas = doc.internal.getNumberOfPages();
       for (let i = 1; i <= paginas; i++) {
           doc.setPage(i);
-          doc.setDrawColor(235, 235, 235);
-          doc.line(margem, altura - 12, largura - margem, altura - 12);
+          // Ondinha.
+          doc.setFillColor(r, g, b);
+          const ondaY = altura - 16;
+          doc.moveTo(0, ondaY);
+          for (let x = 0; x <= largura; x += 1) {
+              const yy = ondaY + Math.sin(x * 0.06) * 3;
+              doc.lineTo(x, yy);
+          }
+          doc.lineTo(largura, altura);
+          doc.lineTo(0, altura);
+          doc.closePath();
+          doc.fill();
+          // Texto do rodapé.
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(150);
-          doc.text(`${room.name} · gerado em ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, margem, altura - 7);
-          doc.text(`${i}/${paginas}`, largura - margem, altura - 7, { align: 'right' });
+          doc.setFontSize(8);
+          doc.setTextColor(255);
+          doc.text(`${room.name} · ${dataSP(new Date(), { day: '2-digit', month: '2-digit', year: 'numeric' })}`, margem, altura - 7);
+          doc.text(`Página ${i} de ${paginas}`, largura - margem, altura - 7, { align: 'right' });
       }
 
       doc.save(`agenda-semana-${room.slug}.pdf`);
@@ -438,15 +449,17 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               logging: false,
               foreignObjectRendering: true,
           });
-          // Cortar para formato 1:1 (quadrado).
+          // Cortar e redimensionar para 1080x1080 (1:1).
           const lado = Math.min(canvas.width, canvas.height);
+          const sx = Math.floor((canvas.width - lado) / 2);
+          const sy = Math.floor((canvas.height - lado) / 2);
           const squareCanvas = document.createElement('canvas');
-          squareCanvas.width = lado;
-          squareCanvas.height = lado;
+          squareCanvas.width = 1080;
+          squareCanvas.height = 1080;
           const ctx = squareCanvas.getContext('2d');
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, lado, lado);
-          ctx.drawImage(canvas, 0, 0, lado, lado, 0, 0, lado, lado);
+          ctx.fillRect(0, 0, 1080, 1080);
+          ctx.drawImage(canvas, sx, sy, lado, lado, 0, 0, 1080, 1080);
           const a = document.createElement('a');
           a.href = squareCanvas.toDataURL('image/jpeg', 0.95);
           a.download = `agenda-semana-${room.slug}.jpg`;
