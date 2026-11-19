@@ -182,7 +182,7 @@ export default async function RoomEditorPage({ params, searchParams }) {
       createdAt: r.createdAt,
     })),
     ehPai,
-    ehGestor: ["OWNER", "ADMIN"].includes(membership.role),
+    ehGestor: membership ? ["OWNER", "ADMIN"].includes(membership.role) : acessoHerdado,
   }));
 
   return (
