@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { agendaPorDia } from "@/lib/festividades/grade";
+import { editarSolicitacao, excluirSolicitacao } from "./actions";
 import { FormAdicionarData, FormAdicionarDataRapida, FormRapido } from "./formularios";
 
 export const ROTULO_STATUS = {
@@ -10,6 +11,8 @@ export const ROTULO_STATUS = {
   em_analise: "Em análise",
   aprovada: "Aprovada",
   rejeitada: "Recusada",
+  substituida: "Substituída",
+  cancelada: "Cancelada",
 };
 
 const COR_STATUS = {
@@ -17,6 +20,8 @@ const COR_STATUS = {
   enviada: "#f59e0b",
   em_analise: "#3b82f6",
   rejeitada: "#cbd5e1",
+  substituida: "#cbd5e1",
+  cancelada: "#cbd5e1",
 };
 
 const DENSIDADES = [
@@ -150,7 +155,45 @@ function Modal({ titulo, onFechar, children, largura = "max-w-md" }) {
   );
 }
 
-function DetalheSolicitacao({ item, onFechar }) {
+function DetalheSolicitacao({ item, onFechar, podeEditar = false, onAlterado }) {
+  const router = useRouter();
+  const [editando, setEditando] = useState(false);
+  const [inicioLocal, setInicioLocal] = useState(`${item.dia}T${item.hora}`);
+  const [fimLocal, setFimLocal] = useState(`${item.dia}T${item.horaFim}`);
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const ativa = ["enviada", "em_analise", "aprovada"].includes(item.status);
+
+  async function salvar() {
+    setErro("");
+    setSalvando(true);
+    const resultado = await editarSolicitacao(item.id, inicioLocal, fimLocal);
+    setSalvando(false);
+    if (resultado?.error) {
+      setErro(resultado.error);
+      return;
+    }
+    setEditando(false);
+    onAlterado?.();
+    router.refresh();
+    onFechar();
+  }
+
+  async function excluir() {
+    if (!window.confirm(`Excluir a data de ${item.sala} (${item.departamento})?`)) return;
+    setErro("");
+    setSalvando(true);
+    const resultado = await excluirSolicitacao(item.id);
+    setSalvando(false);
+    if (resultado?.error) {
+      setErro(resultado.error);
+      return;
+    }
+    onAlterado?.();
+    router.refresh();
+    onFechar();
+  }
+
   return (
     <Modal titulo="Detalhes da solicitação" onFechar={onFechar}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
@@ -182,6 +225,71 @@ function DetalheSolicitacao({ item, onFechar }) {
           Outra sala da mesma região já tem festividade neste dia. É só um aviso — você ainda pode pedir.
         </p>
       )}
+      {podeEditar && ativa && (
+        <div className="mt-4 border-t border-slate-200 pt-4 space-y-3">
+          {editando ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs font-bold text-slate-500">
+                  Início
+                  <input
+                    type="datetime-local"
+                    value={inicioLocal}
+                    onChange={(e) => setInicioLocal(e.target.value)}
+                    className="mt-1 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <label className="text-xs font-bold text-slate-500">
+                  Fim
+                  <input
+                    type="datetime-local"
+                    value={fimLocal}
+                    onChange={(e) => setFimLocal(e.target.value)}
+                    className="mt-1 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                  />
+                </label>
+              </div>
+              {erro && <p className="text-xs text-red-600 font-bold">{erro}</p>}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={salvar}
+                  disabled={salvando}
+                  className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+                >
+                  {salvando ? "Salvando..." : "Salvar data"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditando(false); setErro(""); }}
+                  className="border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-bold"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEditando(true)}
+                className="border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50"
+              >
+                Editar data
+              </button>
+              <button
+                type="button"
+                onClick={excluir}
+                disabled={salvando}
+                className="border border-red-200 text-red-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-50 disabled:opacity-50"
+              >
+                Excluir data
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {erro && !editando && <p className="mt-2 text-xs text-red-600 font-bold">{erro}</p>}
     </Modal>
   );
 }
@@ -419,6 +527,7 @@ export function GradeSolicitacoes({
   const [statusSel, setStatusSel] = useState([]);
   const [busca, setBusca] = useState("");
   const [detalhe, setDetalhe] = useState(null);
+  const [verTodasAberto, setVerTodasAberto] = useState(false);
   const [aberto, setAberto] = useState(null);
   const [fechadas, setFechadas] = useState([]);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
@@ -448,7 +557,7 @@ export function GradeSolicitacoes({
   const itens = useMemo(() => {
     const q = busca.trim().toLocaleLowerCase("pt-BR");
     return grade.solicitacoes.filter((s) => {
-      if (s.status === "substituida") return false;
+      if (s.status === "substituida" || s.status === "cancelada") return false;
       if (regioesSel.length && !regioesSel.includes(s.regiao ?? "Sem região")) return false;
       if (depsSel.length && !depsSel.includes(s.departmentId)) return false;
       if (statusSel.length && !statusSel.includes(s.status)) return false;
@@ -456,6 +565,12 @@ export function GradeSolicitacoes({
       return true;
     });
   }, [grade.solicitacoes, regioesSel, depsSel, statusSel, busca]);
+
+  // Lista completa, sem sofrer influência dos filtros da grade.
+  const todasAsFestividades = useMemo(
+    () => grade.solicitacoes.filter((s) => !["substituida", "cancelada"].includes(s.status)),
+    [grade.solicitacoes],
+  );
 
   const departamentos = depsSel.length
     ? grade.departamentos.filter((d) => depsSel.includes(d.id))
@@ -631,6 +746,14 @@ export function GradeSolicitacoes({
             </div>
           )}
           <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setVerTodasAberto(true)}
+              title="Mostra todas as festividades marcadas, sem depender da coluna ou do mês"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 transition hover:border-indigo-300 hover:text-indigo-700"
+            >
+              Ver todas ({todasAsFestividades.length})
+            </button>
             {podeAdicionar && filhos.length > 0 && (
               <button
                 type="button"
@@ -898,7 +1021,58 @@ export function GradeSolicitacoes({
         })}
       </div>
 
-      {detalhe && <DetalheSolicitacao item={detalhe} onFechar={() => setDetalhe(null)} />}
+      {verTodasAberto && (
+        <Modal
+          titulo={`Todas as festividades (${todasAsFestividades.length})`}
+          onFechar={() => setVerTodasAberto(false)}
+          largura="max-w-2xl"
+        >
+          <p className="text-xs text-slate-500">
+            Lista completa das datas marcadas neste programa, inclusive as que estão em outra coluna ou mês.
+          </p>
+          <div className="grid gap-2">
+            {[...todasAsFestividades]
+              .sort((a, b) => `${a.dia}${a.hora}`.localeCompare(`${b.dia}${b.hora}`))
+              .map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setVerTodasAberto(false);
+                    setDetalhe(item);
+                  }}
+                  className="grid gap-0.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40"
+                >
+                  <span className="text-xs font-black text-slate-900">
+                    {item.dia} · {item.hora}
+                    {item.horaFim ? `–${item.horaFim}` : ""}
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-600">
+                    {item.sala} · {item.departamento}
+                    {item.regiao ? ` · ${item.regiao}` : ""}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    {ROTULO_STATUS[item.status] ?? item.status}
+                    {item.conflito ? " · mesma região no dia" : ""}
+                  </span>
+                </button>
+              ))}
+            {todasAsFestividades.length === 0 && (
+              <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500">
+                Nenhuma festividade marcada com os filtros atuais.
+              </p>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {detalhe && (
+        <DetalheSolicitacao
+          item={detalhe}
+          onFechar={() => setDetalhe(null)}
+          podeEditar={podeAdicionar}
+        />
+      )}
 
       {adicionando && (
         <Modal titulo="Adicionar data para uma sala filha" onFechar={() => setAdicionando(false)} largura="max-w-lg">

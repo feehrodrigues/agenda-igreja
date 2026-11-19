@@ -50,16 +50,74 @@ async function filhosDiretosDoPai(parentRoomId) {
   return filhosDiretos(todos, parentRoomId);
 }
 
-// Tenta descobrir a região da congregação: pelo grupo da sala ou pelo prefixo
-// do nome ("A - CAMPESTRE" → "A"). Sem correspondência, fica sem região.
+// Normaliza um nome de região para comparar "Região A", "regiao a" e "A"
+// como a mesma região. Remove acentos, artigos e o prefixo "região".
+function normalizarRegiao(valor) {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/^regiao\s*(de\s*)?/, "")
+    .replace(/^[oa]\s+/, "")
+    .trim();
+}
+
+// Tenta descobrir a região da congregação: pelo grupo da sala (definido no
+// dashboard) ou pelo prefixo do nome ("A - CAMPESTRE" → "A"). A comparação é
+// flexível para aceitar "Região A", "A" e variações de caixa/acento.
 function regiaoDaSala(sala, regioesPorNome) {
-  const procurar = (valor) =>
-    regioesPorNome.get(String(valor ?? "").trim().toLowerCase()) ?? null;
+  const procurar = (valor) => {
+    const chave = normalizarRegiao(valor);
+    if (!chave) return null;
+    if (regioesPorNome.has(chave)) return regioesPorNome.get(chave);
+    // Como último recurso, uma região cujo nome aparece dentro do grupo.
+    for (const [nome, id] of regioesPorNome) {
+      if (nome && (chave.includes(nome) || nome.includes(chave))) return id;
+    }
+    return null;
+  };
   if (sala.group) {
     const porGrupo = procurar(sala.group);
     if (porGrupo) return porGrupo;
   }
   return procurar(String(sala.name ?? "").split(" - ")[0]);
+}
+
+function mapaRegioes(regioes) {
+  return new Map(
+    regioes
+      .map((r) => [normalizarRegiao(r.name), r.id])
+      .filter(([chave]) => !!chave),
+  );
+}
+
+// Regiões já configuradas nas congregações filhas (campo "group" do dashboard).
+// Usadas para que um novo programa já venha com as mesmas regiões, sem digitar.
+async function regioesDasCongregacoes(parentRoomId) {
+  const salas = await filhosDiretosDoPai(parentRoomId);
+  const vistas = new Set();
+  const nomes = [];
+  for (const sala of salas) {
+    const nome = String(sala.group ?? "").trim();
+    if (!nome) continue;
+    const chave = normalizarRegiao(nome);
+    if (!chave || vistas.has(chave)) continue;
+    vistas.add(chave);
+    nomes.push(nome);
+  }
+  // Fallback: quando nenhuma sala tem grupo, usa o prefixo do nome ("A - ...").
+  if (nomes.length === 0) {
+    for (const sala of salas) {
+      const nome = String(sala.name ?? "").split(" - ")[0].trim();
+      if (!nome || nome === sala.name) continue;
+      const chave = normalizarRegiao(nome);
+      if (!chave || vistas.has(chave)) continue;
+      vistas.add(chave);
+      nomes.push(nome);
+    }
+  }
+  return { salas, nomes };
 }
 
 // Separa por vírgula, ponto e vírgula ou quebra de linha, tira vazios e
@@ -253,16 +311,25 @@ export async function criarPrograma(formData) {
   const deadline = parsePrazo(deadlineRaw);
 
   const criteria = String(formData.get("criteria") ?? "").trim() || null;
-  const regionNames = listaUnica(formData.get("regions"), { separarEspacos: true });
+  const regionNamesDigitadas = listaUnica(formData.get("regions"), { separarEspacos: true });
   const departmentNames = listaUnica(formData.get("departments"));
+
+  // As regiões já configuradas nas congregações (menu Congregações) são
+  // aproveitadas automaticamente — são as mesmas regiões do programa.
+  const { salas: salasFilhas, nomes: regioesExistentes } = await regioesDasCongregacoes(parentRoomId);
+  const regionNames = [];
+  const vistasRegioes = new Set();
+  for (const nome of [...regioesExistentes, ...regionNamesDigitadas]) {
+    const chave = normalizarRegiao(nome);
+    if (!chave || vistasRegioes.has(chave)) continue;
+    vistasRegioes.add(chave);
+    regionNames.push(nome);
+  }
 
   if (!name) return { error: "Informe o nome do programa." };
   if (!startsAt || !endsAt || endsAt < startsAt) return { error: "Período inválido." };
   if (regionNames.length === 0) return { error: "Informe ao menos uma região." };
   if (departmentNames.length === 0) return { error: "Informe ao menos um departamento." };
-
-  // Todos os filhos diretos do setor/ministerio entram automaticamente.
-  const salasFilhas = await filhosDiretosDoPai(parentRoomId);
 
   let programa;
   try {
@@ -363,7 +430,7 @@ export async function sincronizarCongregacoesDoPrograma(programId) {
   }
 
   const jaEntraram = programa.children.map((c) => c.roomId);
-  const salasFilhas = await filhosDiretosDoPai(programa.parentRoomId);
+  const { salas: salasFilhas, nomes: novasRegioes } = await regioesDasCongregacoes(programa.parentRoomId);
   const idsValidos = new Set(salasFilhas.map((s) => s.id));
 
   // Limpa participantes que deixaram de ser filhos diretos deste programa.
@@ -374,25 +441,101 @@ export async function sincronizarCongregacoesDoPrograma(programId) {
     });
   }
 
-  const salas = salasFilhas.filter((s) => !jaEntraram.includes(s.id));
-  if (salas.length === 0) {
-    revalidatePath(`/programas/${programId}`);
-    return { success: true, adicionadas: 0, removidas: fora.length };
+  // Congregações que receberam uma região depois da criação do programa.
+  const regioesExistentes = new Set(programa.regions.map((r) => normalizarRegiao(r.name)));
+  let regioes = programa.regions;
+  const paraCriar = novasRegioes.filter((nome) => !regioesExistentes.has(normalizarRegiao(nome)));
+  if (paraCriar.length > 0) {
+    await prisma.programRegion.createMany({
+      data: paraCriar.map((name) => ({ programId, name })),
+      skipDuplicates: true,
+    });
+    regioes = await prisma.programRegion.findMany({
+      where: { programId },
+      select: { id: true, name: true },
+    });
   }
 
-  const regioesPorNome = new Map(
-    programa.regions.map((r) => [r.name.trim().toLowerCase(), r.id]),
-  );
-  await prisma.programChild.createMany({
-    data: salas.map((s) => ({
-      programId,
-      roomId: s.id,
-      regionId: regiaoDaSala(s, regioesPorNome),
-    })),
-  });
+  const regioesPorNome = mapaRegioes(regioes);
+  const salas = salasFilhas.filter((s) => !jaEntraram.includes(s.id));
+  if (salas.length > 0) {
+    await prisma.programChild.createMany({
+      data: salas.map((s) => ({
+        programId,
+        roomId: s.id,
+        regionId: regiaoDaSala(s, regioesPorNome),
+      })),
+    });
+  }
+
+  // Recalcula a região de quem já estava no programa: se o pai mudou a região
+  // da congregação no menu Congregações, o programa acompanha.
+  for (const sala of salasFilhas) {
+    const filho = await prisma.programChild.findUnique({
+      where: { programId_roomId: { programId, roomId: sala.id } },
+      select: { id: true, regionId: true },
+    });
+    if (!filho) continue;
+    const regiaoId = regiaoDaSala(sala, regioesPorNome);
+    if (filho.regionId !== regiaoId) {
+      await prisma.programChild.update({
+        where: { id: filho.id },
+        data: { regionId },
+      });
+    }
+  }
 
   revalidatePath(`/programas/${programId}`);
+  revalidatePath(`/dashboard/${programa.parentRoomId}`);
   return { success: true, adicionadas: salas.length, removidas: fora.length };
+}
+
+// Sincroniza somente as regiões das congregações já participantes, a partir do
+// campo "group" definido no dashboard das congregações.
+export async function sincronizarRegioesDoPrograma(programId) {
+  const userId = await usuarioAtual();
+  if (!userId) return { error: "Não autenticado." };
+  const programa = await prisma.program.findUnique({
+    where: { id: programId },
+    include: { regions: { select: { id: true, name: true } } },
+  });
+  if (!programa) return { error: "Programa não encontrado." };
+  if (!(await ehGestor(userId, programa.parentRoomId))) {
+    return { error: "Apenas gestores do pai podem sincronizar regiões." };
+  }
+
+  let regioes = programa.regions;
+  const { salas, nomes } = await regioesDasCongregacoes(programa.parentRoomId);
+  const existentes = new Set(regioes.map((r) => normalizarRegiao(r.name)));
+  const paraCriar = nomes.filter((nome) => !existentes.has(normalizarRegiao(nome)));
+  if (paraCriar.length > 0) {
+    await prisma.programRegion.createMany({
+      data: paraCriar.map((name) => ({ programId, name })),
+      skipDuplicates: true,
+    });
+    regioes = await prisma.programRegion.findMany({
+      where: { programId },
+      select: { id: true, name: true },
+    });
+  }
+
+  const porNome = mapaRegioes(regioes);
+  let atualizadas = 0;
+  for (const sala of salas) {
+    const filho = await prisma.programChild.findUnique({
+      where: { programId_roomId: { programId, roomId: sala.id } },
+      select: { id: true, regionId: true },
+    });
+    if (!filho) continue;
+    const regiaoId = regiaoDaSala(sala, porNome);
+    if (filho.regionId !== regiaoId) {
+      await prisma.programChild.update({ where: { id: filho.id }, data: { regionId } });
+      atualizadas += 1;
+    }
+  }
+
+  revalidatePath(`/programas/${programId}`);
+  return { success: true, atualizadas };
 }
 
 // O pai define a região de cada sala filha. Antes isso vinha do nome/grupo da
@@ -693,6 +836,108 @@ export async function decidirSolicitacao(requestId, decisao, motivo) {
   });
 
   revalidatePath("/programas");
+  return { success: true };
+}
+
+// Verifica se o usuário pode alterar uma solicitação: gestor do pai (setor)
+// ou gestor da própria congregação que pediu a data.
+async function podeAlterarSolicitacao(userId, solicitacao) {
+  const setorId = solicitacao.program?.parentRoomId ?? solicitacao.room?.parentId;
+  if (setorId && (await ehGestor(userId, setorId))) return true;
+  return ehGestor(userId, solicitacao.roomId);
+}
+
+// Edita a data/hora de uma festividade já marcada, mantendo o mesmo pedido e o
+// mesmo evento da agenda (não cria uma nova solicitação "substituta").
+export async function editarSolicitacao(requestId, startRaw, endRaw) {
+  const userId = await usuarioAtual();
+  if (!userId) return { error: "Não autenticado." };
+
+  const solicitacao = await prisma.festivityRequest.findUnique({
+    where: { id: requestId },
+    include: { program: true, room: true, department: true },
+  });
+  if (!solicitacao) return { error: "Solicitação não encontrada." };
+  if (!(await podeAlterarSolicitacao(userId, solicitacao))) {
+    return { error: "Apenas gestores do setor ou da congregação podem editar a data." };
+  }
+  if (!ATIVAS.includes(solicitacao.status)) {
+    return { error: "Esta data não pode mais ser editada." };
+  }
+
+  const start = parseData(startRaw);
+  const end = parseData(endRaw);
+  if (!start || !end || end <= start) return { error: "Horário inválido." };
+
+  if (solicitacao.programId) {
+    const filho = await prisma.programChild.findUnique({
+      where: {
+        programId_roomId: { programId: solicitacao.programId, roomId: solicitacao.roomId },
+      },
+      select: { regionId: true },
+    });
+    const bloqueio = await motivoBloqueio({
+      programId: solicitacao.programId,
+      roomId: solicitacao.roomId,
+      departmentId: solicitacao.departmentId,
+      regionId: filho?.regionId ?? null,
+      start,
+    });
+    if (bloqueio) return { error: bloqueio };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.festivityRequest.update({
+      where: { id: requestId },
+      data: { start, end },
+    });
+    if (solicitacao.eventId) {
+      await tx.event.update({
+        where: { id: solicitacao.eventId },
+        data: { start, end },
+      });
+    }
+  });
+
+  revalidatePath("/programas");
+  revalidatePath(`/programas/${solicitacao.programId ?? ""}`);
+  revalidatePath(`/dashboard/${solicitacao.room.slug}`);
+  return { success: true };
+}
+
+// Exclui/cancela uma festividade marcada: remove o evento da agenda e tira a
+// data da grade. Funciona tanto para o setor quanto para a congregação dona.
+export async function excluirSolicitacao(requestId) {
+  const userId = await usuarioAtual();
+  if (!userId) return { error: "Não autenticado." };
+
+  const solicitacao = await prisma.festivityRequest.findUnique({
+    where: { id: requestId },
+    include: { program: true, room: true },
+  });
+  if (!solicitacao) return { error: "Solicitação não encontrada." };
+  if (!(await podeAlterarSolicitacao(userId, solicitacao))) {
+    return { error: "Apenas gestores do setor ou da congregação podem excluir a data." };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (solicitacao.eventId) {
+      await tx.event.delete({ where: { id: solicitacao.eventId } }).catch(() => {});
+    }
+    await tx.festivityRequest.update({
+      where: { id: requestId },
+      data: {
+        status: STATUS.CANCELADA,
+        reason: "Data cancelada pelo gestor",
+        decidedById: userId,
+        decidedAt: new Date(),
+      },
+    });
+  });
+
+  revalidatePath("/programas");
+  if (solicitacao.programId) revalidatePath(`/programas/${solicitacao.programId}`);
+  revalidatePath(`/dashboard/${solicitacao.room.slug}`);
   return { success: true };
 }
 

@@ -6,6 +6,7 @@ export const STATUS = {
   APROVADA: "aprovada",
   REJEITADA: "rejeitada",
   SUBSTITUIDA: "substituida",
+  CANCELADA: "cancelada",
 };
 
 const STATUS_ABERTOS = [STATUS.ENVIADA, STATUS.EM_ANALISE];

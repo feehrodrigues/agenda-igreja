@@ -43,7 +43,7 @@ export function datasLiberadasDoPrograma(programa) {
   return new Set(datas.map((d) => new Date(d.date).toISOString().slice(0, 10)));
 }
 
-const REJEITADOS = [STATUS.REJEITADA, STATUS.SUBSTITUIDA];
+const REJEITADOS = [STATUS.REJEITADA, STATUS.SUBSTITUIDA, STATUS.CANCELADA];
 const ABERTOS = [STATUS.ENVIADA, STATUS.EM_ANALISE];
 const CORES_REGIAO = ["#6366f1", "#0d9488", "#d97706", "#db2777", "#0284c7", "#7c3aed"];
 
@@ -147,18 +147,41 @@ export function montarGrade({ programa, solicitacoes, idSalaAtual = null }) {
     }
   }
 
-  const dias = diasDoPrograma(
+  const diasDoPeriodo = diasDoPrograma(
     programa.startsAt,
     programa.endsAt,
     datasLiberadasDoPrograma(programa) ?? diasLiberadosDoPrograma(programa),
   );
+  const dias = new Map(diasDoPeriodo.map((d) => [d.chave, { ...d, comPedido: false }]));
+  // Um pedido já marcado nunca deve desaparecer da grade só porque a data
+  // deixou de ser liberada (ou ficou fora do período original).
+  for (const item of itens) {
+    if (REJEITADOS.includes(item.status) || !item.dia) continue;
+    const existente = dias.get(item.dia);
+    if (existente) {
+      existente.comPedido = true;
+    } else {
+      const data = new Date(`${item.dia}T12:00:00Z`);
+      dias.set(item.dia, {
+        chave: item.dia,
+        liberado: false,
+        comPedido: true,
+        rotulo: data.toLocaleDateString("pt-BR", {
+          weekday: "short",
+          day: "2-digit",
+          month: "2-digit",
+          timeZone: "UTC",
+        }),
+      });
+    }
+  }
   const meses = agruparPorMes(
-    dias.filter((d) => d.liberado),
+    [...dias.values()].filter((d) => d.liberado || d.comPedido),
     itens,
     paresEsperados,
   );
 
-  return { dias, meses, coresRegiao, departamentos, solicitacoes: itens };
+  return { dias: [...dias.values()], meses, coresRegiao, departamentos, solicitacoes: itens };
 }
 
 // Agrupa itens de agenda (já resumidos) por dia "YYYY-MM-DD" para a interface.

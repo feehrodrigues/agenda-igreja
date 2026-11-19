@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AtualizacaoAutomatica, GradeSolicitacoes, ROTULO_STATUS } from "../painel";
-import { BotaoCopiar, BotaoDecisao, BotaoSincronizarCongregacoes, SeletorRegiaoDoFilho } from "../formularios";
+import { BotaoCopiar, BotaoDecisao, BotaoSincronizarCongregacoes, BotaoSincronizarRegioes, SeletorRegiaoDoFilho } from "../formularios";
 import { CabecalhoPrograma } from "../CabecalhoPrograma";
 import { EditorDatas } from "../editor-datas";
 import { chaveDia, montarGrade, solicitacoesDoPrograma } from "@/lib/festividades/grade";
@@ -254,7 +254,12 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
             programId={programa.id}
             regioes={programa.regions}
             agendaPai={agendaPai}
-            filhos={programa.children.map((c) => ({ id: c.roomId, name: c.room.name }))}
+            filhos={programa.children.map((c) => ({
+              id: c.roomId,
+              name: c.room.name,
+              regiao: c.region?.name ?? c.room.group ?? "",
+              corRegiao: c.room.groupColor ?? "",
+            }))}
             podeAdicionar={ehGestor}
             inicio={new Date(programa.startsAt).toISOString()}
             fim={new Date(programa.endsAt).toISOString()}
@@ -385,11 +390,15 @@ export default async function ProgramaSetorPage({ params, searchParams }) {
             <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="font-black">Salas filhas participantes</h2>
-                <BotaoSincronizarCongregacoes programId={programa.id} />
+                <div className="flex flex-wrap gap-2">
+                  <BotaoSincronizarCongregacoes programId={programa.id} />
+                  <BotaoSincronizarRegioes programId={programa.id} />
+                </div>
               </div>
               <p className="text-sm text-slate-500">
-                O pai define a região de cada sala filha. É só um aviso: se duas salas da
-                mesma região pedirem o mesmo dia, você ainda pode aprovar as duas.
+                As regiões vêm configuradas das congregações (menu Congregações). Use
+                “Sincronizar regiões” depois de alterar alguma. Duas salas da mesma região
+                não podem marcar o mesmo departamento no mesmo dia.
               </p>
               {programa.children.length === 0 && (
                 <p className="text-sm text-slate-500">

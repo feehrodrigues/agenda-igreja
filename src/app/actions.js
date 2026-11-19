@@ -5,6 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { rrulestr } from "rrule";
 import { chaveDiaSP, fimExclusivoSP, inicioDoDiaSP, parseDataSP } from "@/lib/datas";
 
 const prisma = new PrismaClient();
@@ -461,7 +462,23 @@ export async function createEvent(formData) {
       }
     });
     
+    // Revalida a agenda da sala, a agenda pública e as salas alvo (o evento
+    // repassado também precisa aparecer de imediato nelas).
     revalidatePath(`/dashboard/${room.slug}`);
+    if (room.slug) revalidatePath(`/${room.slug}`);
+    revalidatePath('/dashboard');
+    if (targetRoomsConnect.length > 0) {
+      const alvos = await prisma.room.findMany({
+        where: { id: { in: targetRoomsConnect.map((r) => r.id) } },
+        select: { slug: true },
+      });
+      for (const alvo of alvos) {
+        if (alvo.slug) {
+          revalidatePath(`/dashboard/${alvo.slug}`);
+          revalidatePath(`/${alvo.slug}`);
+        }
+      }
+    }
     return { success: true };
   } catch (e) { console.error(e); return { success: false, error: "Erro ao criar." }; }
 }
@@ -622,100 +639,212 @@ export async function deleteCategory(formData) {
     } catch (e) { return { error: "Erro ao excluir categoria." }; }
 }
 
-// --- ADICIONE AO actions.js ---
+// Gestor direto ou de algum ancestral (mesma regra das páginas de dashboard).
+async function ehGestorOuAncestral(userId, sala) {
+  const direto = await prisma.member.findUnique({
+    where: { userId_roomId: { userId, roomId: sala.id } },
+  });
+  if (direto && ["OWNER", "ADMIN"].includes(direto.role)) return true;
+  let ancestralId = sala.parentId;
+  while (ancestralId) {
+    const membro = await prisma.member.findUnique({
+      where: { userId_roomId: { userId, roomId: ancestralId } },
+    });
+    if (membro && ["OWNER", "ADMIN"].includes(membro.role)) return true;
+    const ancestral = await prisma.room.findUnique({
+      where: { id: ancestralId },
+      select: { parentId: true },
+    });
+    ancestralId = ancestral?.parentId ?? null;
+  }
+  return false;
+}
 
-// Local: src/app/actions.js
-// Atualize apenas essa função dentro do seu arquivo
+// Expande recorrências dentro da janela — a mesma regra usada pelo calendário.
+function expandirNoPeriodo(eventos, inicio, fim) {
+  const saida = [];
+  for (const ev of eventos) {
+    const inicioEv = new Date(ev.start);
+    const fimEv = new Date(ev.end);
+    const duracao = Math.max(0, fimEv.getTime() - inicioEv.getTime());
+    const base = {
+      id: ev.id,
+      title: ev.title || "Sem título",
+      descricao: ev.description ?? "",
+      roomId: ev.roomId,
+      roomName: ev.room?.name ?? "",
+      roomColor: ev.room?.color ?? "",
+      categoryName: ev.category?.name ?? "",
+      categoryColor: ev.category?.color ?? "",
+      allDay: !!ev.allDay,
+      cascade: !!ev.cascade,
+      targetIds: (ev.targetRooms ?? []).map((t) => t.id),
+      canEdit: false,
+    };
+    if (ev.isRecurring && ev.rrule) {
+      try {
+        const regra = rrulestr(ev.rrule, { dtstart: inicioEv });
+        for (const data of regra.between(inicio, fim)) {
+          const ignorada = (ev.exceptions ?? []).some(
+            (ex) => chaveDiaSP(ex.exceptionDate) === chaveDiaSP(data),
+          );
+          if (!ignorada) saida.push({ ...base, start: data, end: new Date(data.getTime() + duracao) });
+        }
+        continue;
+      } catch (e) { /* evento único, cai no caso abaixo */ }
+    }
+    if (fimEv >= inicio && inicioEv <= fim) saida.push({ ...base, start: inicioEv, end: fimEv });
+  }
+  return saida;
+}
 
 export async function getDashboardStats(roomId) {
+  const vazio = {
+    totalEventsMonth: 0, totalEventsOwnMonth: 0, upcoming7: 0, allDayMonth: 0,
+    byOrigin: { proprio: 0, filha: 0, pai: 0, outro: 0 },
+    categoryDistribution: [], childrenActivity: [], regions: [],
+    proximosEventos: [], eventosDoMes: [], eventosPorDia: {},
+    totalCongregacoes: 0, totalProgramas: 0,
+  };
   const { userId } = await auth();
-  if (!userId) return { error: "Não autorizado" };
+  if (!userId) return { ...vazio, error: "Não autorizado" };
 
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-  const emSeteDias = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const sala = await prisma.room.findUnique({ where: { id: roomId } });
+  if (!sala) return vazio;
+  if (!(await ehGestorOuAncestral(userId, sala))) return { ...vazio, error: "Sem permissão" };
 
-  const room = await prisma.room.findUnique({
-    where: { id: roomId },
-    include: { children: true }
-  });
+  const agora = new Date();
+  const janelaInicio = new Date(agora); janelaInicio.setFullYear(agora.getFullYear() - 1);
+  const janelaFim = new Date(agora); janelaFim.setFullYear(agora.getFullYear() + 2);
+  const chaveHoje = chaveDiaSP(agora);
+  const [ano, mes] = chaveHoje.slice(0, 7).split("-").map(Number);
+  const inicioMes = inicioDoDiaSP(`${chaveHoje.slice(0, 7)}-01`);
+  const fimMes = fimExclusivoSP(new Date(Date.UTC(ano, mes, 0)).toISOString().slice(0, 10));
+  const emSeteDias = new Date(agora.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  if (!room) return { totalEventsMonth: 0, categoryDistribution: [], childrenActivity: [] };
-  
-  const childrenIds = room.children.map(c => c.id);
-
-  const [totalEventsMonth, totalEventsOwnMonth, upcoming7, allDayMonth] = await Promise.all([
-    prisma.event.count({
-      where: {
-        OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
-        start: { gte: startOfMonth, lte: endOfMonth }
-      }
+  const [rawEvents, todasSalas, programas] = await Promise.all([
+    getRoomEvents(roomId, false),
+    prisma.room.findMany({
+      select: { id: true, name: true, slug: true, group: true, groupColor: true, color: true, parentId: true },
     }),
-    prisma.event.count({
-      where: { roomId, start: { gte: startOfMonth, lte: endOfMonth } }
-    }),
-    prisma.event.count({
-      where: {
-        OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
-        start: { gte: now, lte: emSeteDias }
-      }
-    }),
-    prisma.event.count({
-      where: {
-        OR: [ { roomId: roomId }, { roomId: { in: childrenIds } } ],
-        allDay: true,
-        start: { gte: startOfMonth, lte: endOfMonth }
-      }
-    }),
+    prisma.program.count({ where: { parentRoomId: roomId } }),
   ]);
 
-  const categories = await prisma.category.findMany({
-    where: { roomId },
-    include: { _count: { select: { events: true } } }
+  const porId = new Map(todasSalas.map((s) => [s.id, s]));
+  const filhosPorPai = new Map();
+  for (const s of todasSalas) {
+    if (!s.parentId) continue;
+    if (!filhosPorPai.has(s.parentId)) filhosPorPai.set(s.parentId, []);
+    filhosPorPai.get(s.parentId).push(s.id);
+  }
+  const descendentes = [];
+  const fila = [...(filhosPorPai.get(roomId) ?? [])];
+  while (fila.length) {
+    const id = fila.shift();
+    descendentes.push(id);
+    fila.push(...(filhosPorPai.get(id) ?? []));
+  }
+  const descendentesSet = new Set(descendentes);
+  const ancestrais = new Set();
+  let ancestralId = sala.parentId;
+  while (ancestralId) {
+    ancestrais.add(ancestralId);
+    ancestralId = porId.get(ancestralId)?.parentId ?? null;
+  }
+
+  const expandidos = expandirNoPeriodo(rawEvents, janelaInicio, janelaFim);
+  const origemDe = (ev) => {
+    if (ev.roomId === roomId) return "proprio";
+    if (descendentesSet.has(ev.roomId)) return "filha";
+    if (ancestrais.has(ev.roomId)) return "pai";
+    return "outro";
+  };
+  for (const ev of expandidos) ev.origem = origemDe(ev);
+
+  const noMes = expandidos.filter((ev) => ev.start < fimMes && ev.end >= inicioMes);
+  const nos7 = expandidos.filter((ev) => ev.start <= emSeteDias && ev.end >= agora);
+
+  const serializar = (ev) => ({
+    id: ev.id,
+    title: ev.title,
+    descricao: ev.descricao,
+    inicio: ev.start.toISOString(),
+    fim: ev.end.toISOString(),
+    dia: chaveDiaSP(ev.start),
+    origem: ev.origem,
+    sala: ev.roomName,
+    salaId: ev.roomId,
+    corSala: ev.roomColor,
+    categoria: ev.categoryName || "Sem categoria",
+    corCategoria: ev.categoryColor || "#94a3b8",
+    diaTodo: ev.allDay,
+    podeEditar: ev.roomId === roomId,
   });
 
-  const childrenStats = await prisma.room.findMany({
-    where: { parentId: roomId },
-    select: {
-      id: true,
-      name: true,
-      group: true,
-      color: true,
-      _count: {
-        select: { events: { where: { start: { gte: startOfMonth } } } }
-      }
+  const eventosPorDia = {};
+  const porOrigem = { proprio: 0, filha: 0, pai: 0, outro: 0 };
+  const categorias = new Map();
+  for (const ev of noMes) {
+    const chave = chaveDiaSP(ev.start);
+    eventosPorDia[chave] = (eventosPorDia[chave] ?? 0) + 1;
+    porOrigem[ev.origem] += 1;
+    const nome = ev.categoryName || "Sem categoria";
+    const cat = categorias.get(nome) ?? { name: nome, count: 0, color: ev.categoryColor || "#94a3b8" };
+    cat.count += 1;
+    categorias.set(nome, cat);
+  }
+
+  const childrenActivity = descendentes.map((id) => {
+    const s = porId.get(id);
+    const proprios = noMes.filter((ev) => ev.roomId === id).length;
+    const acima = new Set();
+    let pai = s?.parentId;
+    while (pai) {
+      acima.add(pai);
+      pai = porId.get(pai)?.parentId ?? null;
     }
-  });
+    // Eventos do setor repassados para a congregação não criam outra linha no
+    // banco — por isso contamos targetRooms/cascata como atividade da sala.
+    const recebidos = noMes.filter(
+      (ev) => ev.roomId !== id && (ev.targetIds.includes(id) || (ev.cascade && acima.has(ev.roomId))),
+    ).length;
+    return {
+      id,
+      name: s?.name ?? "",
+      slug: s?.slug ?? "",
+      parentId: s?.parentId ?? null,
+      group: s?.group || "",
+      corRegiao: s?.groupColor || "",
+      color: s?.color || "#3b82f6",
+      proprios,
+      recebidos,
+      count: proprios + recebidos,
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
-  // Resumo por região: quantidade de salas e eventos no mês.
   const porRegiao = new Map();
-  for (const c of childrenStats) {
+  for (const c of childrenActivity) {
     const nome = c.group?.trim() || "Sem região";
-    const atual = porRegiao.get(nome) ?? { regiao: nome, salas: 0, eventos: 0 };
-    atual.salas += 1;
-    atual.eventos += c._count.events || 0;
-    porRegiao.set(nome, atual);
+    const reg = porRegiao.get(nome) ?? { regiao: nome, cor: c.corRegiao || "#6366f1", salas: 0, eventos: 0 };
+    reg.salas += 1;
+    reg.eventos += c.count;
+    porRegiao.set(nome, reg);
   }
 
   return {
-    totalEventsMonth: totalEventsMonth || 0,
-    totalEventsOwnMonth: totalEventsOwnMonth || 0,
-    upcoming7: upcoming7 || 0,
-    allDayMonth: allDayMonth || 0,
-    categoryDistribution: categories.map(c => ({ 
-        name: c.name, 
-        count: c._count.events || 0, 
-        color: c.color 
-    })),
-    childrenActivity: childrenStats.map(c => ({ 
-        id: c.id, 
-        name: c.name, 
-        group: c.group || 'Sem Grupo',
-        color: c.color || '#3b82f6',
-        count: c._count.events || 0 
-    })),
+    totalEventsMonth: noMes.length,
+    totalEventsOwnMonth: porOrigem.proprio,
+    upcoming7: nos7.length,
+    allDayMonth: noMes.filter((ev) => ev.allDay).length,
+    byOrigin: porOrigem,
+    totalCongregacoes: descendentes.length,
+    totalProgramas: programas,
+    categoryDistribution: [...categorias.values()].sort((a, b) => b.count - a.count),
+    childrenActivity,
     regions: [...porRegiao.values()].sort((a, b) => a.regiao.localeCompare(b.regiao, "pt-BR")),
+    proximosEventos: [...nos7].sort((a, b) => a.start - b.start).map(serializar),
+    eventosDoMes: [...noMes].sort((a, b) => a.start - b.start).map(serializar),
+    eventosPorDia,
   };
 }
 

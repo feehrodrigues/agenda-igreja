@@ -1,5 +1,6 @@
 "use client";
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useTransition, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AdminCalendar from './AdminCalendar';
 import Festividades from './Festividades';
@@ -16,7 +17,9 @@ import {
   Plus,
   Target,
   Search,
-  ArrowLeft
+  ArrowLeft,
+  ExternalLink,
+  Filter,
 } from 'lucide-react';
 
 // Aviso discreto: mostra só o que a congregação precisa saber agora.
@@ -32,10 +35,24 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
   const [searchTerm, setSearchTerm] = useState("");
   const [avisoDispensado, setAvisoDispensado] = useState(false);
   const avisos = festividades?.participacoes ?? [];
+  const router = useRouter();
 
-  // Estilização de Cards
-  const Card = ({ title, value, icon: Icon, color }) => (
-    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+  // Filtros do painel detalhado de eventos.
+  const [periodo, setPeriodo] = useState('mes');
+  const [origem, setOrigem] = useState('todos');
+  const [somenteDiaTodo, setSomenteDiaTodo] = useState(false);
+  const [buscaEventos, setBuscaEventos] = useState("");
+  const [eventoAberto, setEventoAberto] = useState(null);
+  const [verTodasCongregacoes, setVerTodasCongregacoes] = useState(false);
+
+  // A aba Analytics não roda o auto-refresh do calendário: atualiza ao abrir.
+  useEffect(() => {
+    if (activeTab === 'analytics') router.refresh();
+  }, [activeTab, router]);
+
+  // Estilização de Cards (clicáveis para filtrar a lista detalhada).
+  const Card = ({ title, value, icon: Icon, color, onClick }) => {
+    const conteudo = (
       <div className="flex justify-between items-start">
         <div>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{title}</p>
@@ -45,8 +62,53 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
           <Icon size={24} className="text-white" />
         </div>
       </div>
-    </div>
-  );
+    );
+    if (!onClick) {
+      return <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">{conteudo}</div>;
+    }
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all text-left"
+        title="Clique para ver os eventos"
+      >
+        {conteudo}
+      </button>
+    );
+  };
+
+  const ORIGEM_LABEL = {
+    proprio: "Próprio",
+    filha: "Congregação",
+    pai: "Do pai/setor",
+    outro: "Recebido",
+  };
+  const ORIGEM_COR = {
+    proprio: "bg-blue-100 text-blue-700",
+    filha: "bg-emerald-100 text-emerald-700",
+    pai: "bg-indigo-100 text-indigo-700",
+    outro: "bg-slate-100 text-slate-600",
+  };
+  const fmtEvento = (ev) => {
+    const d = new Date(ev.inicio);
+    const fim = new Date(ev.fim);
+    const data = d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    if (ev.diaTodo) return data.replace(/\d{2}:\d{2}\s*$/, 'dia todo');
+    const horaFim = fim.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+    return `${data} – ${horaFim}`;
+  };
+
+  const eventosFiltrados = useMemo(() => {
+    const base = periodo === '7dias' ? (stats?.proximosEventos ?? []) : (stats?.eventosDoMes ?? []);
+    const q = buscaEventos.trim().toLocaleLowerCase('pt-BR');
+    return base.filter((ev) => {
+      if (origem !== 'todos' && ev.origem !== origem) return false;
+      if (somenteDiaTodo && !ev.diaTodo) return false;
+      if (q && !`${ev.title} ${ev.sala} ${ev.categoria} ${ev.descricao ?? ''}`.toLocaleLowerCase('pt-BR').includes(q)) return false;
+      return true;
+    });
+  }, [stats, periodo, origem, somenteDiaTodo, buscaEventos]);
 
   return (
     <div className="h-screen w-full bg-slate-50 flex flex-col overflow-hidden">
@@ -177,10 +239,34 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
               </div>
 
               <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-                <Card title="Eventos no mês" value={stats.totalEventsMonth ?? 0} icon={TrendingUp} color="bg-blue-500" />
-                <Card title="Próximos 7 dias" value={stats.upcoming7 ?? 0} icon={CalIcon} color="bg-indigo-500" />
-                <Card title="Dia todo no mês" value={stats.allDayMonth ?? 0} icon={PartyPopper} color="bg-amber-500" />
-                <Card title="Congregações" value={childrenRooms.length} icon={MapPin} color="bg-emerald-500" />
+                <Card
+                  title="Eventos no mês"
+                  value={stats.totalEventsMonth ?? 0}
+                  icon={TrendingUp}
+                  color="bg-blue-500"
+                  onClick={() => { setPeriodo('mes'); setOrigem('todos'); setSomenteDiaTodo(false); }}
+                />
+                <Card
+                  title="Próximos 7 dias"
+                  value={stats.upcoming7 ?? 0}
+                  icon={CalIcon}
+                  color="bg-indigo-500"
+                  onClick={() => { setPeriodo('7dias'); setOrigem('todos'); setSomenteDiaTodo(false); }}
+                />
+                <Card
+                  title="Dia todo no mês"
+                  value={stats.allDayMonth ?? 0}
+                  icon={PartyPopper}
+                  color="bg-amber-500"
+                  onClick={() => { setPeriodo('mes'); setSomenteDiaTodo(true); }}
+                />
+                <Card
+                  title="Congregações"
+                  value={stats.totalCongregacoes ?? childrenRooms.length}
+                  icon={MapPin}
+                  color="bg-emerald-500"
+                  onClick={() => setVerTodasCongregacoes(true)}
+                />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
@@ -208,8 +294,8 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
                           </div>
                           <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
                             <div
-                              className="h-full rounded-full bg-indigo-500"
-                              style={{ width: `${(r.eventos / maior) * 100}%` }}
+                              className="h-full rounded-full"
+                              style={{ width: `${(r.eventos / maior) * 100}%`, backgroundColor: r.cor || '#6366f1' }}
                             />
                           </div>
                         </div>
@@ -249,29 +335,52 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                 {/* Atividade das congregações */}
                 <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-                  <h3 className="text-lg font-black text-slate-900 mb-4">Atividade das congregações</h3>
-                  {stats.childrenActivity.length === 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <h3 className="text-lg font-black text-slate-900">Atividade das congregações</h3>
+                    {(stats.childrenActivity ?? []).length > 8 && (
+                      <button
+                        type="button"
+                        onClick={() => setVerTodasCongregacoes((v) => !v)}
+                        className="text-xs font-bold text-blue-600 hover:underline"
+                      >
+                        {verTodasCongregacoes ? "Mostrar menos" : "Ver todas"}
+                      </button>
+                    )}
+                  </div>
+                  {(!stats.childrenActivity || stats.childrenActivity.length === 0) && (
                     <p className="text-sm text-slate-500">Nenhuma congregação vinculada.</p>
                   )}
                   <div className="divide-y divide-slate-100">
-                    {[...stats.childrenActivity].sort((a, b) => b.count - a.count).slice(0, 8).map((child, i) => (
-                      <div key={child.id ?? child.name} className="py-3 flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span className="w-7 h-7 flex-none rounded-full bg-slate-100 flex items-center justify-center text-[11px] font-black text-slate-500">{i + 1}</span>
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-900 truncate">{child.name}</p>
-                            <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-                              <i className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: child.color ?? "#94a3b8" }} />
-                              {child.group}
-                            </p>
+                    {[...(stats.childrenActivity ?? [])]
+                      .sort((a, b) => b.count - a.count)
+                      .slice(0, verTodasCongregacoes ? undefined : 8)
+                      .map((child, i) => (
+                        <div key={child.id ?? child.name} className="py-3 flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="w-7 h-7 flex-none rounded-full bg-slate-100 flex items-center justify-center text-[11px] font-black text-slate-500">{i + 1}</span>
+                            <div className="min-w-0">
+                              <Link
+                                href={`/dashboard/${child.slug}`}
+                                className="font-bold text-slate-900 truncate hover:text-blue-600 hover:underline"
+                              >
+                                {child.name}
+                              </Link>
+                              <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                                <i className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: child.corRegiao || child.color || "#94a3b8" }} />
+                                {child.group || "Sem região"}
+                                <span className="text-slate-300">·</span>
+                                <span>{child.proprios} próprios</span>
+                                <span className="text-slate-300">·</span>
+                                <span>{child.recebidos} repassados</span>
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right flex-none">
+                            <span className="text-lg font-black text-blue-600">{child.count}</span>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">eventos</p>
                           </div>
                         </div>
-                        <div className="text-right flex-none">
-                          <span className="text-lg font-black text-blue-600">{child.count}</span>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">eventos</p>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
 
@@ -319,6 +428,163 @@ export default function RoomDashboard({ room, initialEvents, categories, allPare
                       {festividades.avulsas.length} confirmação(ões) avulsa(s) aguardando.
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Detalhe: todos os eventos, com filtros e busca */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-6 pb-3">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">Eventos em detalhe</h3>
+                    <p className="text-xs text-slate-500 font-medium">
+                      {eventosFiltrados.length} evento(s) · clique em um evento para ver os detalhes.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setPeriodo('mes')}
+                        className={`px-3 py-1.5 ${periodo === 'mes' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}
+                      >
+                        Este mês
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPeriodo('7dias')}
+                        className={`px-3 py-1.5 ${periodo === '7dias' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'}`}
+                      >
+                        Próximos 7 dias
+                      </button>
+                    </div>
+                    <label className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-600">
+                      <Filter size={13} />
+                      <select
+                        value={origem}
+                        onChange={(e) => setOrigem(e.target.value)}
+                        className="bg-transparent outline-none"
+                      >
+                        <option value="todos">Todas as origens</option>
+                        <option value="proprio">Próprios</option>
+                        <option value="filha">Das congregações</option>
+                        <option value="pai">Do pai/setor</option>
+                        <option value="outro">Recebidos</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setSomenteDiaTodo((v) => !v)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold ${
+                        somenteDiaTodo ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      Dia todo
+                    </button>
+                    <label className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5">
+                      <Search size={13} className="text-slate-400" />
+                      <input
+                        value={buscaEventos}
+                        onChange={(e) => setBuscaEventos(e.target.value)}
+                        placeholder="Buscar evento, sala..."
+                        className="w-36 outline-none text-xs sm:w-52"
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="w-full min-w-[720px] text-left text-sm">
+                    <thead>
+                      <tr className="border-y border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        <th className="px-4 py-2.5">Data</th>
+                        <th className="px-4 py-2.5">Evento</th>
+                        <th className="px-4 py-2.5">Sala / Região</th>
+                        <th className="px-4 py-2.5">Categoria</th>
+                        <th className="px-4 py-2.5">Origem</th>
+                        <th className="px-4 py-2.5"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {eventosFiltrados.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                            Nenhum evento com esses filtros.
+                          </td>
+                        </tr>
+                      )}
+                      {eventosFiltrados.map((ev) => (
+                        <tr
+                          key={`${ev.id}-${ev.inicio}`}
+                          onClick={() => setEventoAberto(eventoAberto?.id === ev.id && eventoAberto?.inicio === ev.inicio ? null : ev)}
+                          className="cursor-pointer hover:bg-blue-50/40"
+                        >
+                          <td className="whitespace-nowrap px-4 py-3 font-bold tabular-nums text-slate-700">{fmtEvento(ev)}</td>
+                          <td className="px-4 py-3">
+                            <p className="font-bold text-slate-900">{ev.title}</p>
+                            {eventoAberto?.id === ev.id && eventoAberto?.inicio === ev.inicio && ev.descricao && (
+                              <p className="mt-1 max-w-md text-xs text-slate-500">{ev.descricao}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-slate-700">{ev.sala}</p>
+                            <p className="text-[11px] text-slate-400">
+                              {(stats.childrenActivity ?? []).find((c) => c.id === ev.salaId)?.group || '—'}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                              <i className="h-2 w-2 rounded-full" style={{ backgroundColor: ev.corCategoria }} />
+                              {ev.categoria}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ${ORIGEM_COR[ev.origem] ?? ORIGEM_COR.outro}`}>
+                              {ORIGEM_LABEL[ev.origem] ?? ev.origem}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Link
+                              href={`/dashboard/${(stats.childrenActivity ?? []).find((c) => c.id === ev.salaId)?.slug ?? room.slug}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline"
+                            >
+                              Abrir <ExternalLink size={12} />
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Próximos eventos — visão rápida */}
+              <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-black text-slate-900">Próximos eventos</h3>
+                  <button
+                    type="button"
+                    onClick={() => { setPeriodo('7dias'); setOrigem('todos'); setSomenteDiaTodo(false); }}
+                    className="text-xs font-bold text-blue-600 hover:underline"
+                  >
+                    Ver na lista →
+                  </button>
+                </div>
+                {(!stats.proximosEventos || stats.proximosEventos.length === 0) && (
+                  <p className="text-sm text-slate-500">Nenhum evento nos próximos 7 dias.</p>
+                )}
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {(stats.proximosEventos ?? []).slice(0, 6).map((ev) => (
+                    <button
+                      key={`${ev.id}-${ev.inicio}`}
+                      type="button"
+                      onClick={() => { setPeriodo('7dias'); setEventoAberto(ev); }}
+                      className="rounded-xl border border-slate-200 p-3 text-left hover:border-blue-300 hover:bg-blue-50/40 transition"
+                    >
+                      <p className="text-[11px] font-bold text-slate-500">{fmtEvento(ev)}</p>
+                      <p className="mt-0.5 font-black text-slate-900 truncate">{ev.title}</p>
+                      <p className="mt-1 text-xs text-slate-500 truncate">{ev.sala} · {ev.categoria}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

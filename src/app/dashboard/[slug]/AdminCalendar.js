@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, getDate, set } from 'date-fns';
@@ -52,7 +52,7 @@ const CustomToolbar = (toolbar) => (
                 <button onClick={() => toolbar.onNavigate('TODAY')} className="text-xs font-bold bg-slate-100 px-3 py-2 rounded-lg">Hoje</button>
                 <button onClick={() => toolbar.onNavigate('NEXT')} className="p-2 hover:bg-slate-100 rounded-full transition"><ChevronRight size={18}/></button>
             </div>
-            <span className="text-sm md:text-lg font-black text-slate-800 capitalize">{view === 'day' ? format(toolbar.date, "EEEE, d 'de' MMMM 'de' yyyy", { locale: ptBR }) : format(toolbar.date, 'MMMM yyyy', { locale: ptBR })}</span>
+            <span className="text-sm md:text-lg font-black text-slate-800 capitalize">{toolbar.view === 'day' ? format(toolbar.date, "EEEE, d 'de' MMMM 'de' yyyy", { locale: ptBR }) : format(toolbar.date, 'MMMM yyyy', { locale: ptBR })}</span>
             <div className="flex p-1 bg-slate-100 rounded-xl">
                 {['month', 'week', 'day', 'agenda'].map((v) => (
                     <button key={v} onClick={() => { toolbar.onView(v); }} className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${toolbar.view === v ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
@@ -77,7 +77,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
             if (typeof document === 'undefined' || document.visibilityState === 'visible') {
                 router.refresh();
             }
-        }, 3000);
+        }, 12000);
         return () => {
             window.removeEventListener('focus', handleFocus);
             clearInterval(intervalo);
@@ -104,14 +104,47 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
         return map;
     }, [initialEvents]);
 
+    // Tudo que o servidor já trouxe fica visível de início. Antes, apenas a sala
+    // aberta e o pai apareciam, e os eventos das congregações exigiam um clique
+    // em "Alternar Tudo" — era o motivo de a grade mostrar só um evento.
     const initialVisibleIds = useMemo(() => {
-        const ids = [room.id];
-        if (room.parentId) ids.push(room.parentId);
-        return new Set(ids);
-    }, [room]);
+        const ids = new Set([room.id]);
+        if (room.parentId) ids.add(room.parentId);
+        Object.keys(initialFetchedMap).forEach(id => ids.add(id));
+        (childrenRooms || []).forEach(c => ids.add(c.id));
+        return ids;
+    }, [room.id, room.parentId, initialFetchedMap, childrenRooms]);
 
     const [allFetchedEvents, setAllFetchedEvents] = useState(initialFetchedMap);
     const [visibleRoomIds, setVisibleRoomIds] = useState(initialVisibleIds);
+    const salasConhecidas = useRef(new Set(initialVisibleIds));
+
+    // O router.refresh() traz novos props do servidor (ex.: evento recém-criado),
+    // mas o useState não é reinicializado. Sincroniza as salas que vieram do
+    // servidor sem descartar as congregações filhas carregadas sob demanda.
+    useEffect(() => {
+        setAllFetchedEvents((prev) => {
+            const proximo = { ...prev };
+            Object.entries(initialFetchedMap).forEach(([roomId, eventos]) => {
+                proximo[roomId] = eventos;
+            });
+            return proximo;
+        });
+    }, [initialFetchedMap]);
+
+    // Se um refresh trouxer eventos de uma sala que ainda não existia no mapa,
+    // ela entra na visualização sem reaparecer salas que o usuário ocultou.
+    useEffect(() => {
+        const novas = Object.keys(initialFetchedMap).filter(id => !salasConhecidas.current.has(id));
+        if (novas.length === 0) return;
+        novas.forEach(id => salasConhecidas.current.add(id));
+        setVisibleRoomIds(prev => {
+            const proximo = new Set(prev);
+            novas.forEach(id => proximo.add(id));
+            return proximo;
+        });
+    }, [initialFetchedMap]);
+
     const [isLoadingChildren, setIsLoadingChildren] = useState(new Set());
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -136,14 +169,105 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
 
     // Lógica de Visualização
     const displayedEvents = useMemo(() => {
-        let eventsToShow = [];
+        // Um evento repassado ao setor volta em cada congregação (mesmo id), e
+        // cópias antigas têm ids diferentes mas o mesmo conteúdo. Dedupamos por
+        // id e por assinatura para que "Alternar Tudo" não multiplique eventos.
+        const idsVistos = new Set();
+        const assinaturas = new Map();
+        const eventos = [];
         visibleRoomIds.forEach(roomId => {
-            if (allFetchedEvents[roomId]) {
-                eventsToShow.push(...allFetchedEvents[roomId]);
-            }
+            (allFetchedEvents[roomId] || []).forEach((ev) => {
+                if (idsVistos.has(ev.id)) return;
+                idsVistos.add(ev.id);
+                const assinatura = [
+                    ev.title,
+                    new Date(ev.start).toISOString(),
+                    new Date(ev.end).toISOString(),
+                    ev.allDay ? '1' : '0',
+                    ev.rrule || '',
+                    ev.description || '',
+                    ev.categoryId || '',
+                ].join('|');
+                const anterior = assinaturas.get(assinatura);
+                if (anterior) {
+                    // Prefere sempre a versão da agenda aberta.
+                    if (ev.roomId === room.id && anterior.roomId !== room.id) {
+                        const indice = eventos.indexOf(anterior);
+                        if (indice >= 0) eventos[indice] = ev;
+                        assinaturas.set(assinatura, ev);
+                    }
+                    return;
+                }
+                assinaturas.set(assinatura, ev);
+                eventos.push(ev);
+            });
         });
-        return eventsToShow;
-    }, [allFetchedEvents, visibleRoomIds]);
+        return eventos;
+    }, [allFetchedEvents, visibleRoomIds, room.id]);
+
+    // Agrupa por dia (fuso de Brasília) para mostrar, no cabeçalho de cada
+    // célula do mês, quantos eventos existem e permitir abrir todos de uma vez.
+    const eventosPorDia = useMemo(() => {
+        const mapa = new Map();
+        displayedEvents.forEach((ev) => {
+            const chave = chaveDiaSP(ev.start);
+            if (!chave) return;
+            if (!mapa.has(chave)) mapa.set(chave, []);
+            mapa.get(chave).push(ev);
+        });
+        return mapa;
+    }, [displayedEvents]);
+
+    const DateHeaderComContador = ({ label, date, onDrillDown, isOffRange }) => {
+        const chave = chaveDiaSP(date);
+        const total = eventosPorDia.get(chave)?.length ?? 0;
+        return (
+            <button
+                type="button"
+                onClick={onDrillDown}
+                title={total > 0 ? `Clique para ver todos os ${total} evento(s) deste dia` : `Ver o dia ${chave}`}
+                className={`rbc-button-link inline-flex items-center justify-center gap-1 transition-colors hover:text-blue-600 hover:underline ${isOffRange ? 'opacity-40' : ''}`}
+            >
+                <span>{label}</span>
+                {total > 0 && (
+                    <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-blue-100 px-1 text-[9px] font-black leading-4 text-blue-700">
+                        {total}
+                    </span>
+                )}
+            </button>
+        );
+    };
+
+    // Busca os eventos das filhas que ainda não foram carregados.
+    // Une tudo em um único setState para não perder resultados por closures antigas.
+    const carregarEventosDasFilhas = async (ids) => {
+        const faltando = ids.filter(id => id !== room.id && !allFetchedEvents[id]);
+        if (faltando.length === 0) return true;
+        setIsLoadingChildren(prev => {
+            const novo = new Set(prev);
+            faltando.forEach(id => novo.add(id));
+            return novo;
+        });
+        const resultados = await Promise.all(faltando.map(id => getChildRoomEvents(id, room.id)));
+        let ok = true;
+        setAllFetchedEvents(prev => {
+            const proximo = { ...prev };
+            resultados.forEach((resultado, indice) => {
+                if (resultado.success) {
+                    proximo[faltando[indice]] = safeProcessEvents(resultado.events);
+                } else {
+                    ok = false;
+                }
+            });
+            return proximo;
+        });
+        setIsLoadingChildren(prev => {
+            const novo = new Set(prev);
+            faltando.forEach(id => novo.delete(id));
+            return novo;
+        });
+        return ok;
+    };
 
     const handleVisibilityChange = async (roomId) => {
         const newVisibleIds = new Set(visibleRoomIds);
@@ -151,37 +275,34 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
             newVisibleIds.delete(roomId);
         } else {
             newVisibleIds.add(roomId);
-            if (!allFetchedEvents[roomId]) {
-                setIsLoadingChildren(prev => new Set(prev).add(roomId));
-                if (roomId !== room.id) {
-                    const result = await getChildRoomEvents(roomId, room.id);
-                    if (result.success) {
-                        // USA A FUNÇÃO BLINDADA AQUI TAMBÉM
-                        setAllFetchedEvents(prev => ({ ...prev, [roomId]: safeProcessEvents(result.events) }));
-                    } else {
-                        alert(result.error);
-                        newVisibleIds.delete(roomId);
-                    }
-                }
-                setIsLoadingChildren(prev => { const newSet = new Set(prev); newSet.delete(roomId); return newSet; });
-            }
         }
         setVisibleRoomIds(newVisibleIds);
+        if (newVisibleIds.has(roomId) && !allFetchedEvents[roomId]) {
+            const ok = await carregarEventosDasFilhas([roomId]);
+            if (!ok) setVisibleRoomIds(prev => { const novo = new Set(prev); novo.delete(roomId); return novo; });
+        }
     };
 
-    const toggleAllChildren = () => {
-        const allChildrenIds = childrenRooms.map(c => c.id);
+    const toggleAllChildren = async () => {
+        const allChildrenIds = [...new Set([
+            ...(childrenRooms || []).map(c => c.id),
+            ...Object.keys(allFetchedEvents).filter(id => id !== room.id && id !== room.parentId),
+        ])];
         const allSelected = allChildrenIds.every(id => visibleRoomIds.has(id));
-        const newSet = new Set(visibleRoomIds);
         if (allSelected) {
-            allChildrenIds.forEach(id => newSet.delete(id));
-        } else {
-            allChildrenIds.forEach(id => {
-                newSet.add(id);
-                if (!allFetchedEvents[id]) handleVisibilityChange(id); 
-            });
+            // Mantém apenas a sala atual (e o pai, se houver).
+            const novo = new Set([room.id]);
+            if (room.parentId) novo.add(room.parentId);
+            setVisibleRoomIds(novo);
+            return;
         }
-        setVisibleRoomIds(newSet);
+        // Seleciona TODAS as filhas de uma só vez (um clique).
+        setVisibleRoomIds(prev => {
+            const novo = new Set(prev);
+            allChildrenIds.forEach(id => novo.add(id));
+            return novo;
+        });
+        await carregarEventosDasFilhas(allChildrenIds);
     };
 
     const checkConflict = (start, end, excludeId) => {
@@ -450,7 +571,8 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
                             selectable
                             onSelectSlot={(slot) => prepareForm(null, slot)}
                             onSelectEvent={(evt) => prepareForm(evt)}
-                            components={{ event: EventComponent, toolbar: CustomToolbar }}
+                            components={{ event: EventComponent, toolbar: CustomToolbar, dateHeader: DateHeaderComContador }}
+                            onDrillDown={(date, targetView) => { setCurrentDate(date); setView(targetView || 'day'); }}
                             messages={{ next: "Próximo", previous: "Anterior", today: "Hoje", month: "Mês", week: "Semana", day: "Dia", agenda: "Lista", noEventsInRange: "Nenhum evento visível.", showMore: total => `+${total} ver mais` }}
                             popup={true}
                             style={{ height: '100%' }}

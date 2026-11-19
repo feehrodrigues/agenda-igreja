@@ -11,6 +11,7 @@ import {
   definirDepartamentosDaCongregacao,
   decidirSolicitacao,
   sincronizarCongregacoesDoPrograma,
+  sincronizarRegioesDoPrograma,
 } from "./actions";
 
 const campo =
@@ -75,6 +76,36 @@ export function BotaoSincronizarCongregacoes({ programId }) {
               ]
                 .filter(Boolean)
                 .join(" · ")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// Importa para o programa as regiões já configuradas nas congregações (menu
+// Congregações do dashboard), sem precisar digitar de novo.
+export function BotaoSincronizarRegioes({ programId }) {
+  const [estado, setEstado] = useState(null);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        disabled={pending}
+        className={botao}
+        onClick={() =>
+          startTransition(async () => setEstado(await sincronizarRegioesDoPrograma(programId)))
+        }
+      >
+        {pending ? "Sincronizando…" : "Sincronizar regiões das congregações"}
+      </button>
+      {estado?.error && <span className="text-sm font-bold text-red-600">{estado.error}</span>}
+      {estado?.success && (
+        <span className="text-sm font-bold text-green-700">
+          {estado.atualizadas > 0
+            ? `${estado.atualizadas} região(ões) atualizada(s).`
+            : "As regiões já estão em dia."}
         </span>
       )}
     </div>
@@ -427,7 +458,7 @@ export function FormAdicionarData({
         >
           {filhos.map((f) => (
             <option key={f.id} value={f.id}>
-              {f.name}
+              {f.regiao ? `${f.name} — ${f.regiao}` : f.name}
             </option>
           ))}
         </select>
@@ -548,7 +579,9 @@ export function FormAdicionarDataRapida({
     <form onSubmit={enviar} className="grid gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50/70 p-1.5">
       <select name="roomId" required value={filhoId} onChange={(e) => setFilhoId(e.target.value)} className={mini}>
         {filhos.map((f) => (
-          <option key={f.id} value={f.id}>{f.name}</option>
+          <option key={f.id} value={f.id}>
+            {f.regiao ? `${f.name} — ${f.regiao}` : f.name}
+          </option>
         ))}
       </select>
 
