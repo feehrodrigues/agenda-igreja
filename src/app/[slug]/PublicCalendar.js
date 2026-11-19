@@ -398,9 +398,12 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       for (let i = 1; i <= paginas; i++) {
           doc.setPage(i);
           doc.setFillColor(30, 41, 59);
-          const ondaY = altura - 12;
+          const ondaY = altura - 14;
           doc.moveTo(0, ondaY);
-          doc.bezierCurveTo(largura * 0.25, ondaY - 8, largura * 0.75, ondaY + 4, largura, ondaY - 6);
+          for (let x = 0; x <= largura; x += 0.5) {
+              const yy = ondaY - 6 * Math.sin((x / largura) * Math.PI);
+              doc.lineTo(x, yy);
+          }
           doc.lineTo(largura, altura);
           doc.lineTo(0, altura);
           doc.close();
