@@ -103,7 +103,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       if (typeof document === 'undefined' || document.visibilityState === 'visible') router.refresh();
     };
     window.addEventListener('focus', atualizar);
-    const intervalo = setInterval(atualizar, 30000);
+    const intervalo = setInterval(atualizar, 10000);
     return () => {
       window.removeEventListener('focus', atualizar);
       clearInterval(intervalo);
@@ -231,7 +231,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           doDia.forEach((ev) => {
               const hora = ev.allDay ? "Dia todo" : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
               if (ev.resource?.origem === "pai" && ev.resource?.roomName) {
-                  linhas.push(`> 🟨 ${ev.resource.roomName}  |  ${hora} — ${ev.title}`);
+                  linhas.push(`> 🟡 ${ev.resource.roomName}  |  ${hora} — ${ev.title}`);
               } else if (ev.resource?.origem === "filho" && ev.resource?.roomName) {
                   linhas.push(`> 🔹 ${ev.resource.roomName}  |  ${hora} — ${ev.title}`);
               } else {
@@ -981,7 +981,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               <button onClick={baixarPDFDaSemana} className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 text-white px-3 py-2.5 text-xs font-bold hover:bg-blue-700 transition"><FileText size={16}/> PDF</button>
               <button onClick={baixarJPGDaSemana} disabled={weekGenerating} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white px-3 py-2.5 text-xs font-bold hover:bg-emerald-700 transition disabled:opacity-50"><Download size={16}/> {weekGenerating ? 'Gerando…' : 'JPG'}</button>
               <button onClick={copiarTextoDaSemana} className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white px-3 py-2.5 text-xs font-bold hover:bg-slate-700 transition"><AlignLeft size={16}/> {textoCopiado ? 'Copiado!' : 'Copiar texto'}</button>
-              <button onClick={abrirWhatsApp} className="flex items-center justify-center gap-2 rounded-xl bg-[#25D366] text-white px-3 py-2.5 text-xs font-bold hover:bg-[#1ebe5b] transition"><Share2 size={16}/> WhatsApp</button>
+              
             </div>
             <button onClick={baixarTextoDaSemana} className="mt-2 w-full text-center text-[11px] font-bold text-slate-400 hover:text-slate-600">
               Baixar texto (.txt)

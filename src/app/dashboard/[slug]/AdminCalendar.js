@@ -52,7 +52,7 @@ const CustomToolbar = (toolbar) => (
                 <button onClick={() => toolbar.onNavigate('TODAY')} className="text-xs font-bold bg-slate-100 px-3 py-2 rounded-lg">Hoje</button>
                 <button onClick={() => toolbar.onNavigate('NEXT')} className="p-2 hover:bg-slate-100 rounded-full transition"><ChevronRight size={18}/></button>
             </div>
-            <span className="text-sm md:text-lg font-black text-slate-800 capitalize">{format(toolbar.date, 'MMMM yyyy', { locale: ptBR })}</span>
+            <span className="text-sm md:text-lg font-black text-slate-800 capitalize">{view === 'day' ? format(toolbar.date, "EEEE, d 'de' MMMM 'de' yyyy", { locale: ptBR }) : format(toolbar.date, 'MMMM yyyy', { locale: ptBR })}</span>
             <div className="flex p-1 bg-slate-100 rounded-xl">
                 {['month', 'week', 'day', 'agenda'].map((v) => (
                     <button key={v} onClick={() => { toolbar.onView(v); }} className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${toolbar.view === v ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
@@ -77,7 +77,7 @@ export default function AdminCalendar({ room, initialEvents, categories, allPare
             if (typeof document === 'undefined' || document.visibilityState === 'visible') {
                 router.refresh();
             }
-        }, 12000);
+        }, 3000);
         return () => {
             window.removeEventListener('focus', handleFocus);
             clearInterval(intervalo);
