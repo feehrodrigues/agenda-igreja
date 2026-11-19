@@ -434,7 +434,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
           // Cabeçalho slate-800.
           ctx.fillStyle = '#1e293b';
-          ctx.fillRect(0, 0, 1080, 150);
+          ctx.fillRect(0, 0, 1080, 165);
 
           // Marca AgendaIgreja (canto superior direito).
           ctx.font = '14px Arial, sans-serif';
