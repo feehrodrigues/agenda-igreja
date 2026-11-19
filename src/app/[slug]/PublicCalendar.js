@@ -295,11 +295,11 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       doc.setFontSize(22);
       doc.text(room.name, margem, 16);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
+      doc.setFontSize(14);
       doc.setTextColor(203, 213, 225);
       doc.text('Agenda da Semana', margem, 24);
-      doc.setFontSize(9);
-      doc.text(tituloDaSemana(), margem, 31);
+      doc.setFontSize(11);
+      doc.text(tituloDaSemana(), margem, 32);
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
       doc.text('AGENDA IGREJA', largura - margem, 16, { align: 'right' });
@@ -360,21 +360,19 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
               if (marcaPai) {
                   doc.setFillColor(254, 243, 199);
-                  doc.roundedRect(margem + indentacao, y - 4, larguraConteudo - indentacao, 7 + (tituloLinhas.length - 1) * 4.5 + (ev.resource?.roomName && ev.resource.isExternal ? 4 : 0), 1.5, 1.5, 'F');
-                  doc.setDrawColor(251, 191, 36);
-                  doc.setLineWidth(0.4);
-                  doc.roundedRect(margem + indentacao, y - 4, larguraConteudo - indentacao, 7 + (tituloLinhas.length - 1) * 4.5 + (ev.resource?.roomName && ev.resource.isExternal ? 4 : 0), 1.5, 1.5, 'S');
+                  doc.roundedRect(margem + indentacao, y - 4, larguraConteudo - indentacao, 7 + (tituloLinhas.length - 1) * 4.5 + (ev.resource?.roomName && ev.resource.isExternal ? 4 : 0), 4, 4, 'F');
+
               }
 
               const hora = ev.allDay ? 'Dia todo' : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
               doc.setFont('helvetica', 'bold');
               doc.setFontSize(8.5);
-              doc.setTextColor(marcaPai ? 180 : 71);
+              doc.setTextColor(marcaPai ? 80 : 71);
               doc.text(hora, margem + 6 + indentacao, y);
 
-              doc.setFont('helvetica', marcaPai ? 'italic' : 'bold');
+              doc.setFont('helvetica', 'bold');
               doc.setFontSize(10);
-              doc.setTextColor(marcaPai ? 146 : 30);
+              doc.setTextColor(30, 41, 59);
               doc.text(tituloLinhas, margem + 34 + indentacao, y);
               y += (tituloLinhas.length - 1) * 4.5 + 7;
 
@@ -382,7 +380,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               if (local) {
                   doc.setFont('helvetica', marcaPai ? 'bold' : 'normal');
                   doc.setFontSize(8);
-                  doc.setTextColor(marcaPai ? 180 : 100);
+                  doc.setTextColor(marcaPai ? 80 : 100);
                   doc.text(local, margem + 34 + indentacao, y - 2);
                   y += 3;
               }
@@ -398,10 +396,11 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       for (let i = 1; i <= paginas; i++) {
           doc.setPage(i);
           doc.setFillColor(30, 41, 59);
-          const ondaY = altura - 14;
-          doc.moveTo(0, ondaY);
+          const ondaY = altura - 8;
+          doc.moveTo(0, altura);
           for (let x = 0; x <= largura; x += 0.5) {
-              const yy = ondaY - 6 * Math.sin((x / largura) * Math.PI);
+              const t = x / largura;
+              const yy = altura - 4 - 14 * (1 - Math.cos(t * Math.PI * 0.5));
               doc.lineTo(x, yy);
           }
           doc.lineTo(largura, altura);
