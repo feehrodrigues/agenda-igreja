@@ -150,6 +150,48 @@
   background-color: #f8fafc !important;
 }
 
+/* FIX: agenda view height inside flex container */
+.rbc-calendar > .rbc-agenda-view,
+.rbc-calendar > .rbc-week-view,
+.rbc-calendar > .rbc-month-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.rbc-agenda-view .rbc-agenda-content {
+  height: 100%;
+  overflow: auto;
+}
+
+/* Diferenciação visual na agenda/lista para eventos do pai (agenda superior) */
+.rbc-agenda-view tbody tr:has(td > div[data-origem="pai"]) {
+  background-color: #fefce8 !important; /* amber-50 */
+}
+.rbc-agenda-view tbody tr:has(td > div[data-origem="pai"]) .rbc-agenda-date-cell,
+.rbc-agenda-view tbody tr:has(td > div[data-origem="pai"]) .rbc-agenda-time-cell,
+.rbc-agenda-view tbody tr:has(td > div[data-origem="pai"]) .rbc-agenda-event-cell {
+  background-color: #fefce8 !important;
+}
+.rbc-agenda-view tbody tr:has(td > div[data-origem="pai"]) .rbc-agenda-date-cell {
+  border-left: 4px solid #fbbf24 !important;
+}
+
+.rbc-agenda-view tbody tr:has(td > div[data-origem="filho"]) {
+  background-color: #f0f9ff !important; /* sky-50 */
+}
+.rbc-agenda-view tbody tr:has(td > div[data-origem="filho"]) .rbc-agenda-date-cell,
+.rbc-agenda-view tbody tr:has(td > div[data-origem="filho"]) .rbc-agenda-time-cell,
+.rbc-agenda-view tbody tr:has(td > div[data-origem="filho"]) .rbc-agenda-event-cell {
+  background-color: #f0f9ff !important;
+}
+.rbc-agenda-view tbody tr:has(td > div[data-origem="filho"]) .rbc-agenda-date-cell {
+  border-left: 4px solid #38bdf8 !important;
+}
+
+.rbc-agenda-view tbody tr {
+  position: relative;
+}
+
 /* Scrollbar */
 .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }

@@ -75,13 +75,36 @@ export default async function PublicPage({ params, searchParams }) {
     // O link público mostra só a agenda desta sala; as agendas filhas só entram
     // quando a pessoa pede explicitamente (?filhos=1).
     const rawEvents = await getRoomEvents(room.id, false, incluirFilhos);
+
+    // Descobre os ancestrais para classificar cada evento: próprio, do pai
+    // (setor/ministério) ou de uma filha. Assim o visitante não confunde um
+    // compromisso setorial com uma atividade local.
+    const ancestrais = new Set();
+    let atual = room.parentId
+        ? await prisma.room.findUnique({ where: { id: room.parentId }, select: { id: true, parentId: true } })
+        : null;
+    while (atual) {
+        ancestrais.add(atual.id);
+        atual = atual.parentId
+            ? await prisma.room.findUnique({ where: { id: atual.parentId }, select: { id: true, parentId: true } })
+            : null;
+    }
+
     const expanded = expandEvents(rawEvents); 
     
     // SERIALIZAÇÃO PARA O VERCEL
-    const serializableEvents = JSON.parse(JSON.stringify(expanded.map(ev => ({
-        ...ev,
-        resource: { ...ev.resource, isExternal: ev.roomId !== room.id }
-    }))));
+    const serializableEvents = JSON.parse(JSON.stringify(expanded.map(ev => {
+        const origem =
+            ev.roomId === room.id ? "proprio" : ancestrais.has(ev.roomId) ? "pai" : "filho";
+        return {
+            ...ev,
+            resource: {
+                ...ev.resource,
+                origem,
+                isExternal: origem !== "proprio",
+            },
+        };
+    })));
     
     return (
         <PublicCalendar 

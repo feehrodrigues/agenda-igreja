@@ -44,8 +44,20 @@ function hexToRgb(hex) {
 
 const CustomEvent = ({ event }) => {
     const textColor = getContrastColor(event.resource.color);
+    const origem = event.resource?.origem;
     return (
-        <div style={{ backgroundColor: event.resource.color, color: textColor }} className="px-1.5 py-0.5 rounded text-[11px] font-bold truncate leading-tight h-full flex items-center">
+        <div
+            data-origem={origem}
+            style={{ backgroundColor: event.resource.color, color: textColor }}
+            className={`px-1.5 py-0.5 rounded text-[11px] font-bold truncate leading-tight h-full flex items-center ${
+                origem === "pai"
+                    ? "border border-dashed border-white/80 italic opacity-90"
+                    : origem === "filho"
+                      ? "opacity-80"
+                      : ""
+            }`}
+            title={origem === "pai" ? `Compromisso de ${event.resource?.roomName || "outra agenda"}` : origem === "filho" ? `Compromisso de ${event.resource?.roomName || "uma agenda filha"}` : undefined}
+        >
             {event.title}
         </div>
     );
@@ -106,6 +118,11 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
     }
   }, [room]);
   
+  // Filtro de origem: por padrão mostra só os compromissos desta sala. Os
+  // eventos do pai/setor e das filhas entram quando o visitante marcar.
+  const [mostrarPai, setMostrarPai] = useState(false);
+  const [mostrarFilhas, setMostrarFilhas] = useState(incluirFilhos);
+
   // Processamento de Eventos
   const allEvents = useMemo(() => {
       if (!serializableEvents) return [];
@@ -117,11 +134,39 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
               if (e.allDay) end.setDate(end.getDate() + 1);
               else end.setHours(end.getHours() + 1);
           }
-          return { ...e, start, end };
+          const origem = e.resource?.origem ?? (e.roomId === room.id ? "proprio" : "pai");
+          return { ...e, start, end, resource: { ...e.resource, origem } };
       });
-  }, [serializableEvents]);
+  }, [serializableEvents, room.id]);
+
+  const contagem = useMemo(() => {
+      let proprios = 0, pais = 0, filhas = 0;
+      for (const ev of allEvents) {
+          if (ev.resource.origem === "proprio") proprios += 1;
+          else if (ev.resource.origem === "pai") pais += 1;
+          else filhas += 1;
+      }
+      return { proprios, pais, filhas };
+  }, [allEvents]);
+
+  const eventsBase = useMemo(() => {
+      return allEvents.filter((ev) => {
+          const origem = ev.resource?.origem;
+          if (origem === "proprio") return true;
+          if (origem === "pai") return mostrarPai;
+          if (origem === "filho") return incluirFilhos && mostrarFilhas;
+          return true;
+      });
+  }, [allEvents, mostrarPai, mostrarFilhas, incluirFilhos]);
 
   const filteredEvents = useMemo(() => {
+    const lower = searchTerm.toLowerCase();
+    return searchTerm ? eventsBase.filter(e => e.title.toLowerCase().includes(lower)) : eventsBase;
+  }, [eventsBase, searchTerm]);
+
+  // Base do aviso semanal: ignora o filtro de origem (mostra a semana completa,
+  // com os eventos do pai devidamente identificados).
+  const eventosDaSemana = useMemo(() => {
     const lower = searchTerm.toLowerCase();
     return searchTerm ? allEvents.filter(e => e.title.toLowerCase().includes(lower)) : allEvents;
   }, [allEvents, searchTerm]);
@@ -148,7 +193,9 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       const chave = chaveDiaSP(dia);
       const inicio = inicioDoDiaSP(chave);
       const fim = inicioDoDiaSP(somarDiasChave(chave, 1));
-      return filteredEvents
+      // O aviso semanal mostra tudo (inclusive o que vem do pai/setor), sempre
+      // com a marcação de origem, para o secretário não confundir.
+      return eventosDaSemana
           .filter((ev) => {
               if (ev.allDay) return new Date(ev.start) < fim && new Date(ev.end) > inicio;
               return ev.start >= inicio && ev.start < fim;
@@ -174,10 +221,21 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           doDia.forEach((ev) => {
               const hora = ev.allDay ? 'Dia todo' : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
               const local = ev.resource?.roomName && ev.resource.isExternal ? ` (${ev.resource.roomName})` : '';
-              linhas.push(`• ${hora} — ${ev.title}${local}`);
+              const tag = ev.resource?.origem === 'pai' ? '🟨 ' : ev.resource?.origem === 'filho' ? '🔹 ' : '';
+              linhas.push(`• ${hora} — ${tag}${ev.title}${local}`);
           });
           linhas.push('');
       });
+      const nomesPai = [...new Set(
+          semana.flatMap((dia) => eventosDoDia(dia))
+              .filter((ev) => ev.resource?.origem === 'pai')
+              .map((ev) => ev.resource?.roomName)
+              .filter(Boolean),
+      )];
+      if (nomesPai.length > 0) {
+          linhas.push(`🟨 = ${nomesPai.join(' / ')}`);
+          linhas.push('');
+      }
       linhas.push('_Enviado pela Agenda Igreja_');
       return linhas.join('\n');
   };
@@ -241,7 +299,24 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
       doc.setFontSize(8);
       doc.text('AGENDA IGREJA', largura - margem, 15, { align: 'right' });
 
+      // Legenda visual quando a semana tem compromissos herdados.
+      const nomesPai = [...new Set(
+          semana.flatMap((dia) => eventosDoDia(dia))
+              .filter((ev) => ev.resource?.origem === 'pai')
+              .map((ev) => ev.resource?.roomName)
+              .filter(Boolean),
+      )];
       let y = 40;
+      if (nomesPai.length > 0) {
+          doc.setFillColor(252, 211, 77);
+          doc.rect(margem, y - 3.5, 5, 3.5, 'F');
+          doc.setTextColor(146, 100, 20);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.text(doc.splitTextToSize(nomesPai.join(' / '), largura - margem * 2 - 8)[0], margem + 8, y);
+          y += 6;
+      }
+
       const larguraConteudo = largura - margem * 2;
 
       const novaPaginaSePreciso = (necessario) => {
@@ -295,30 +370,36 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
           }
 
           doDia.forEach((ev) => {
+              const marcaPai = ev.resource?.origem === 'pai';
               const tituloLinhas = doc.splitTextToSize(
                   `${ev.title}${ev.description ? ` — ${ev.description}` : ''}`,
                   larguraConteudo - 38,
               );
               novaPaginaSePreciso(6 + (tituloLinhas.length - 1) * 4.5 + 4);
 
+              if (marcaPai) {
+                  doc.setFillColor(252, 211, 77);
+                  doc.rect(margem + 1.5, y - 3.5, 1.6, 4, 'F');
+              }
+
               const hora = ev.allDay ? 'Dia todo' : `${horaSP(ev.start)}–${horaSP(ev.end)}`;
               doc.setFont('helvetica', 'bold');
               doc.setFontSize(8);
-              doc.setTextColor(90);
+              doc.setTextColor(marcaPai ? 160 : 90);
               doc.text(hora, margem + 6, y);
 
-              doc.setFont('helvetica', 'bold');
+              doc.setFont('helvetica', marcaPai ? 'italic' : 'bold');
               doc.setFontSize(9);
-              doc.setTextColor(30);
+              doc.setTextColor(marcaPai ? 150 : 30);
               doc.text(tituloLinhas, margem + 36, y);
               y += (tituloLinhas.length - 1) * 4.5 + 6;
 
               const local = ev.resource?.roomName && ev.resource.isExternal ? ev.resource.roomName : null;
               if (local) {
-                  doc.setFont('helvetica', 'normal');
+                  doc.setFont('helvetica', marcaPai ? 'bold' : 'normal');
                   doc.setFontSize(7.5);
-                  doc.setTextColor(130);
-                  doc.text(`Local: ${local}`, margem + 36, y - 1);
+                  doc.setTextColor(marcaPai ? 146 : 130);
+                  doc.text(local, margem + 36, y - 1);
                   y += 3;
               }
           });
@@ -612,7 +693,7 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-10">
-      <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 z-40">
+      <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 z-40 overflow-visible">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg" style={{backgroundColor: room.color}}>{room.name.charAt(0)}</div><div className="leading-tight"><h1 className="text-base md:text-lg font-black text-slate-900 truncate max-w-[150px] md:max-w-md">{room.name}</h1><p className="text-[10px] text-slate-500 font-bold uppercase">Agenda Igreja</p></div></div>
             <div className="flex items-center gap-2">
@@ -650,15 +731,71 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
         </div>
       )}
 
+      <div className="border-b border-slate-200 bg-white/70">
+        <div className="max-w-5xl mx-auto px-4 py-2.5 flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-bold text-slate-500">Mostrar:</span>
+          <button
+            type="button"
+            onClick={() => setMostrarPai(false)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-bold transition ${
+              !mostrarPai
+                ? "border-slate-900 bg-slate-900 text-white"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Somente esta sala
+            <span className={`rounded-full px-1.5 text-[10px] ${!mostrarPai ? "bg-white/20" : "bg-slate-100"}`}>{contagem.proprios}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMostrarPai((v) => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-bold transition ${
+              mostrarPai
+                ? "border-amber-300 bg-amber-50 text-amber-800"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+            title="Adicionar os compromissos da agenda superior"
+          >
+            <span className="h-2 w-2 rounded-full bg-amber-400" />
+            {mostrarPai ? "Com" : "Adicionar"} {room.parent?.name || "agenda superior"}
+            <span className={`rounded-full px-1.5 text-[10px] ${mostrarPai ? "bg-amber-100" : "bg-slate-100"}`}>{contagem.pais}</span>
+          </button>
+
+          {incluirFilhos && (
+            <button
+              type="button"
+              onClick={() => setMostrarFilhas((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-bold transition ${
+                mostrarFilhas
+                  ? "border-sky-300 bg-sky-50 text-sky-800"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <span className="h-2 w-2 rounded-full bg-sky-500" />
+              Das filhas
+              <span className={`rounded-full px-1.5 text-[10px] ${mostrarFilhas ? "bg-sky-100" : "bg-slate-100"}`}>{contagem.filhas}</span>
+            </button>
+          )}
+
+          {mostrarPai && contagem.pais > 0 && (
+            <span className="ml-auto inline-flex items-center gap-1.5 font-semibold text-amber-700">
+              <span className="h-2.5 w-5 rounded-sm bg-amber-300 ring-1 ring-amber-400" />
+              {room.parent?.name || "agenda superior"}
+            </span>
+          )}
+        </div>
+      </div>
+
       <main className="max-w-5xl mx-auto w-full p-4 space-y-8">
         <div className="relative group"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} /><input type="text" placeholder="Pesquisar um evento..." className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/></div>
         <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden min-h-[700px]">
-            <Calendar localizer={localizer} events={filteredEvents} view={view} onView={setView} date={currentDate} onNavigate={setCurrentDate} components={{ toolbar: CustomToolbar, event: CustomEvent }} onSelectEvent={setSelectedEvent} culture="pt-BR" messages={{ noEventsInRange: "Sem eventos nesta data.", showMore: total => `+${total} mais` }} popup={true} className="p-4" />
+            <Calendar localizer={localizer} events={filteredEvents} view={view} onView={setView} date={currentDate} onNavigate={setCurrentDate} components={{ toolbar: CustomToolbar, event: CustomEvent }} onSelectEvent={setSelectedEvent} culture="pt-BR" messages={{ noEventsInRange: "Sem eventos nesta data.", showMore: total => `+${total} mais` }} popup={true} style={{ height: 680 }} className="p-4" />
         </div>
-        <section className="animate-in slide-in-from-bottom duration-500"><div className="flex items-center justify-between mb-4 px-2"><h2 className="text-xl font-black text-slate-800">Resumo de {format(currentDate, 'MMMM', {locale: ptBR})}</h2><span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{monthEvents.length} eventos</span></div>{monthEvents.length > 0 ? (<div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{monthEvents.map((ev, idx) => (<div key={idx} onClick={() => setSelectedEvent(ev)} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer group flex items-center gap-4"><div className="flex flex-col items-center justify-center min-w-[50px] h-[50px] rounded-xl bg-slate-50 text-slate-400 group-hover:bg-blue-50"><span className="text-lg font-black leading-none text-slate-600 group-hover:text-blue-600">{format(ev.start, 'dd')}</span><span className="text-[10px] font-bold uppercase">{format(ev.start, 'EEE', {locale: ptBR})}</span></div><div className="flex-1 min-w-0"><h4 className="font-bold text-slate-900 truncate group-hover:text-blue-600">{ev.title}</h4><div className="flex items-center gap-3 mt-1 text-slate-500 text-xs font-medium"><span className="flex items-center gap-1"><Clock size={12}/> {ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : horaSP(ev.start)}</span>{ev.resource.isExternal && <span className="flex items-center gap-1"><MapPin size={12}/> {ev.resource.roomName}</span>}</div></div><ChevronRight size={18} className="text-slate-300 group-hover:text-blue-400" /></div>))}</div>) : (<div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-200 text-center"><p className="text-slate-400 font-bold">Nenhum evento programado para este mês.</p></div>)}</section>
+        <section className="animate-in slide-in-from-bottom duration-500"><div className="flex items-center justify-between mb-4 px-2"><h2 className="text-xl font-black text-slate-800">Resumo de {format(currentDate, 'MMMM', {locale: ptBR})}</h2><span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{monthEvents.length} eventos</span></div>{monthEvents.length > 0 ? (<div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{monthEvents.map((ev, idx) => (<div key={idx} onClick={() => setSelectedEvent(ev)} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer group flex items-center gap-4"><div className="flex flex-col items-center justify-center min-w-[50px] h-[50px] rounded-xl bg-slate-50 text-slate-400 group-hover:bg-blue-50"><span className="text-lg font-black leading-none text-slate-600 group-hover:text-blue-600">{format(ev.start, 'dd')}</span><span className="text-[10px] font-bold uppercase">{format(ev.start, 'EEE', {locale: ptBR})}</span></div><div className="flex-1 min-w-0"><h4 className="font-bold text-slate-900 truncate group-hover:text-blue-600">{ev.title}</h4><div className="flex items-center gap-3 mt-1 text-slate-500 text-xs font-medium"><span className="flex items-center gap-1"><Clock size={12}/> {ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : horaSP(ev.start)}</span>{ev.resource.origem === 'pai' && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">{ev.resource.roomName}</span>}{ev.resource.origem === 'filho' && <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[9px] font-bold text-sky-800">{ev.resource.roomName}</span>}</div></div><ChevronRight size={18} className="text-slate-300 group-hover:text-blue-400" /></div>))}</div>) : (<div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-200 text-center"><p className="text-slate-400 font-bold">Nenhum evento programado para este mês.</p></div>)}</section>
       </main>
 
-      {selectedEvent && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}><div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 overflow-hidden" onClick={e => e.stopPropagation()}><div className="h-2 w-full" style={{backgroundColor: selectedEvent.resource.color}}></div><div className="p-8"><div className="flex justify-between items-start mb-6"><h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedEvent.title}</h2><button onClick={() => setSelectedEvent(null)} className="text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full"><X size={20}/></button></div><div className="space-y-6"><div className="flex items-start gap-4 text-slate-600 bg-slate-50 p-4 rounded-2xl"><Clock className="text-blue-500 mt-1" size={24}/><div><p className="font-black text-slate-800 capitalize">{format(selectedEvent.start, "EEEE, d 'de' MMMM", {locale: ptBR})}</p><p className="text-sm font-bold text-slate-500">{selectedEvent.allDay ? `${rotuloDiaTodo(selectedEvent.start, selectedEvent.end)} · ${rotuloPeriodoDiaTodo(selectedEvent.start, selectedEvent.end)}` : `${horaSP(selectedEvent.start)} até ${horaSP(selectedEvent.end)}`}</p></div></div>{selectedEvent.description && (<div className="flex items-start gap-4 text-slate-600 px-2"><AlignLeft className="text-slate-400 mt-1" size={24}/><p className="text-sm leading-relaxed">{selectedEvent.description}</p></div>)}<div className="flex items-center gap-4 text-slate-600 px-2 pt-4 border-t border-slate-100"><MapPin className="text-slate-400" size={24}/><span className="text-sm font-black text-slate-700">{selectedEvent.resource.roomName || room.name}</span></div></div><button onClick={() => setSelectedEvent(null)} className="w-full mt-8 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition shadow-lg">Fechar</button></div></div></div>)}
+      {selectedEvent && (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedEvent(null)}><div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 overflow-hidden" onClick={e => e.stopPropagation()}><div className="h-2 w-full" style={{backgroundColor: selectedEvent.resource.color}}></div><div className="p-8"><div className="flex justify-between items-start mb-6"><h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedEvent.title}</h2>{selectedEvent.resource?.origem === 'pai' && (<span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800"><span className="h-2 w-2 rounded-full bg-amber-400" />{selectedEvent.resource.roomName}</span>)}{selectedEvent.resource?.origem === 'filho' && (<span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-800"><span className="h-2 w-2 rounded-full bg-sky-400" />{selectedEvent.resource.roomName}</span>)}<button onClick={() => setSelectedEvent(null)} className="text-slate-400 hover:text-slate-700 bg-slate-100 p-2 rounded-full"><X size={20}/></button></div><div className="space-y-6"><div className="flex items-start gap-4 text-slate-600 bg-slate-50 p-4 rounded-2xl"><Clock className="text-blue-500 mt-1" size={24}/><div><p className="font-black text-slate-800 capitalize">{format(selectedEvent.start, "EEEE, d 'de' MMMM", {locale: ptBR})}</p><p className="text-sm font-bold text-slate-500">{selectedEvent.allDay ? `${rotuloDiaTodo(selectedEvent.start, selectedEvent.end)} · ${rotuloPeriodoDiaTodo(selectedEvent.start, selectedEvent.end)}` : `${horaSP(selectedEvent.start)} até ${horaSP(selectedEvent.end)}`}</p></div></div>{selectedEvent.description && (<div className="flex items-start gap-4 text-slate-600 px-2"><AlignLeft className="text-slate-400 mt-1" size={24}/><p className="text-sm leading-relaxed">{selectedEvent.description}</p></div>)}<div className="flex items-center gap-4 text-slate-600 px-2 pt-4 border-t border-slate-100"><MapPin className="text-slate-400" size={24}/><span className="text-sm font-black text-slate-700">{selectedEvent.resource.roomName || room.name}</span></div></div><button onClick={() => setSelectedEvent(null)} className="w-full mt-8 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition shadow-lg">Fechar</button></div></div></div>)}
 
       {/* MODAL AGENDA SEMANAL */}
       {isWeekOpen && (
@@ -679,6 +816,14 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
                 <span className="font-black text-slate-800">{room.name}</span>
                 <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Agenda da semana</span>
               </div>
+              {eventosDaSemana.some((ev) => ev.resource?.origem === 'pai') && (
+                <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50/60 px-4 py-1.5">
+                  <span className="h-2.5 w-5 rounded-sm bg-amber-300 ring-1 ring-amber-400" />
+                  <span className="text-[10px] font-bold text-amber-800">
+                    {[...new Set(eventosDaSemana.filter((ev) => ev.resource?.origem === 'pai').map((ev) => ev.resource?.roomName).filter(Boolean))].join(' / ')}
+                  </span>
+                </div>
+              )}
               <div className="divide-y divide-slate-100">
                 {semana.map((dia) => {
                   const doDia = eventosDoDia(dia);
@@ -692,13 +837,17 @@ export default function PublicCalendar({ room, events: serializableEvents, isFol
                       <div className="grid gap-1.5 min-w-0">
                         {doDia.length === 0 && <span className="text-xs text-slate-400 italic py-1">Sem eventos</span>}
                         {doDia.map((ev) => (
-                          <div key={`${ev.id}-${chaveDiaSP(dia)}`} className="flex items-start gap-2 rounded-lg border border-slate-100 px-2 py-1.5">
+                          <div key={`${ev.id}-${chaveDiaSP(dia)}`} className={`flex items-start gap-2 rounded-lg border px-2 py-1.5 ${ev.resource?.origem === 'pai' ? 'border-amber-200 border-l-4 border-l-amber-400 bg-amber-50/70' : 'border-slate-100'}`}>
                             <span className="mt-0.5 h-2.5 w-2.5 flex-none rounded-full" style={{ backgroundColor: ev.resource?.color || '#3b82f6' }} />
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-800 truncate">{ev.title}</div>
                               <div className="text-[10px] text-slate-500 font-medium">
                                 {ev.allDay ? rotuloDiaTodo(ev.start, ev.end) : `${horaSP(ev.start)}–${horaSP(ev.end)}`}
-                                {ev.resource?.roomName && ev.resource.isExternal ? ` · ${ev.resource.roomName}` : ''}
+                                {ev.resource?.roomName && ev.resource.isExternal && (
+                                  <span className={ev.resource?.origem === 'pai' ? 'font-bold text-amber-700' : 'font-semibold text-sky-700'}>
+                                    {' · '}{ev.resource.roomName}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
